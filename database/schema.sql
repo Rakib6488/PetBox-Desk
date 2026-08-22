@@ -68,6 +68,18 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id
 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_customer_emails_status ON customer_emails(status, received_at);
 
+CREATE TABLE IF NOT EXISTS facebook_inbox_events (
+  id TEXT PRIMARY KEY,
+  sender_id TEXT NOT NULL,
+  sender_name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  page_id TEXT,
+  event_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_facebook_events_created ON facebook_inbox_events(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS app_state (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   state JSONB NOT NULL,

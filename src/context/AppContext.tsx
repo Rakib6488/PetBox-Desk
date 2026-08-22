@@ -62,6 +62,14 @@ function createConversationSummary(conversation: Conversation, customerMessages:
   };
 }
 
+const PROMOTIONAL_MESSAGE_PATTERN = /(unsubscribe|newsletter|no[-_ ]?reply|noreply|marketing|advertis|promotional|sponsored|bulk mail|click here to (buy|shop|subscribe)|utm_[a-z]+|বিজ্ঞাপন|প্রচার)/i;
+
+function isPromotionalMessage(content: string, sender = '') {
+  const combined = `${sender} ${content}`;
+  if (PROMOTIONAL_MESSAGE_PATTERN.test(combined)) return true;
+  return /(sale|discount|coupon|offer|অফার|ছাড়|কুপন)/i.test(content) && /(https?:\/\/|www\.|buy|shop|subscribe|কিনুন|অর্ডার)/i.test(content);
+}
+
 const EMPTY_USER: User = {
   id: '', name: '', email: '', role: 'agent', status: 'offline', statusStartedAt: '', avatar: '', createdAt: '',
 };
@@ -363,39 +371,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Drop incoming query: Only max 2 active queries land for the agent at a time; others stay in waiting queue
   const dropNextIncomingQuery = () => {
-    const item = INCOMING_QUERY_POOL[poolIndexRef.current % INCOMING_QUERY_POOL.length];
-    poolIndexRef.current += 1;
-
-    const queryItem: WaitingQuery = {
-      id: `wait_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      name: item.name,
-      avatar: item.avatar,
-      email: item.email,
-      message: item.message,
-      channelType: 'facebook',
-      pageName: 'Petbox',
-      createdAt: new Date().toISOString(),
-      priority: 'medium',
-    };
-
-    // Check active open conversations count
-    const activeOpenCount = conversations.filter(
-      (c) => (c.status === 'open' || c.status === 'pending') && c.assignedAgentId === currentUser.id
-    ).length;
-
-    if (!isAgentPaused && activeOpenCount < landingLimit) {
-      landQueryItem(queryItem);
-    } else {
-      setWaitingQueue((prev) => [...prev, queryItem]);
-      playSoundChime();
-      addAuditLog('QUERY_QUEUED', 'WaitingQueue', queryItem.id, `New query from ${item.name} queued in waiting queue`);
-    }
+    // Demo query generation is intentionally disabled. Incoming items must come
+    // from a connected Facebook, email, live-chat, or WhatsApp source.
+    return undefined;
   };
 
   // Toggle Agent Pause / Resume
   const toggleAgentPause = () => {
     setIsAgentPaused((prev) => {
       const next = !prev;
+      if (next) setSelectedConversationId(null);
       addAuditLog(
         next ? 'AGENT_PAUSED' : 'AGENT_RESUMED',
         'User',
@@ -543,8 +528,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (Array.isArray(data.messages)) setMessages(data.messages);
           if (Array.isArray(data.slaRules)) setSlaRules(data.slaRules);
           if (Array.isArray(data.auditLogs)) setAuditLogs(data.auditLogs);
-          if (Array.isArray(data.waitingQueue)) setWaitingQueue(data.waitingQueue);
-          if (Array.isArray(data.customerEmails)) setCustomerEmails(data.customerEmails);
+          if (Array.isArray(data.waitingQueue)) {
+            const today = new Date().toISOString().slice(0, 10);
+            setWaitingQueue(data.waitingQueue.filter((item: WaitingQuery) => String(item.createdAt || '').slice(0, 10) === today));
+          }
+          if (Array.isArray(data.customerEmails)) setCustomerEmails(data.customerEmails.filter((email: CustomerEmail) => !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail)));
           if (data.emailSettings && typeof data.emailSettings === 'object') setEmailSettings((prev) => ({ ...prev, ...data.emailSettings }));
           if (typeof data.landingLimit === 'number') setLandingLimit(data.landingLimit);
         }
@@ -1289,7 +1277,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const mergeFetchedEmails = (newEmails: CustomerEmail[]) => {
-    const uniqueNewEmails = newEmails.filter((email) => !customerEmails.some((existing) => existing.id === email.id));
+    const realEmails = newEmails.filter((email) => !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail));
+    const uniqueNewEmails = realEmails.filter((email) => !customerEmails.some((existing) => existing.id === email.id));
     setCustomerEmails((prev) => {
       const existingIds = new Set(prev.map((e) => e.id));
       const existingSubjects = new Set(prev.map((e) => `${e.fromEmail}_${e.subject}_${e.receivedAt}`));
@@ -1367,11 +1356,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
   }, [isLoggedIn, emailSettings.enabled, emailSettings.autoSync]);
 
+  // Receive real Facebook webhook messages through the authenticated inbox socket.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const socket = channelApi.socket();
+    const handleFacebookMessage = (incoming: { eventId?: string; senderId: string; senderName: string; content: string; timestamp: number; pageId?: string }) => {
+      if (isPromotionalMessage(incoming.content, incoming.senderName)) return;
+      if (incoming.eventId && messages.some((message) => message.id === incoming.eventId)) return;
+      const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
+      let conversationId = '';
+      let nextMessage: Message | null = null;
+      setConversations((previous) => {
+        const existing = previous.find((conversation) => conversation.channelType === 'facebook' && conversation.contact.facebookPsid === incoming.senderId);
+        if (existing) {
+          conversationId = existing.id;
+          nextMessage = { id: incoming.eventId || `fb_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: existing.contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: selectedConversationId === conversationId };
+          return previous.map((conversation) => conversation.id === conversationId ? { ...conversation, lastMessageAt: createdAt, lastMessageText: incoming.content, unreadCount: selectedConversationId === conversationId ? 0 : conversation.unreadCount + 1, status: conversation.status === 'closed' ? 'open' : conversation.status, summary: createConversationSummary(conversation, messages.filter((message) => message.conversationId === conversationId && message.senderType === 'contact'), nextMessage || undefined) } : conversation);
+        }
+        conversationId = `fb_conv_${Date.now()}`;
+        const contactId = `fb_contact_${incoming.senderId}`;
+        const newConversation: Conversation = { id: conversationId, convUid: `FB-${Date.now()}`, pageId: incoming.pageId || 'facebook', pageName: pages.find((page) => page.channelType === 'facebook')?.name || 'Facebook Support', channelType: 'facebook', contactId, contact: { id: contactId, name: incoming.senderName || 'Facebook Customer', facebookPsid: incoming.senderId, email: '', avatar: '', createdAt }, assignedAgentId: currentUser.id, assignedAgent: currentUser, status: 'open', sentiment: 'neutral', tags: tags.length ? [tags[0]] : [], lastMessageAt: createdAt, lastMessageText: incoming.content, unreadCount: 1, createdAt, priority: 'medium' };
+        nextMessage = { id: incoming.eventId || `fb_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: false };
+        newConversation.summary = createConversationSummary(newConversation, [nextMessage]);
+        return [newConversation, ...previous];
+      });
+      if (nextMessage) setMessages((previous) => [...previous, nextMessage as Message]);
+      if (conversationId) addAuditLog('FACEBOOK_MESSAGE_RECEIVED', 'Conversation', conversationId, `Received Facebook message from ${incoming.senderName}`);
+      playSoundChime();
+    };
+    socket.on('facebook:message', handleFacebookMessage);
+    void channelApi.fetchFacebookEvents().then((response) => response.events.forEach(handleFacebookMessage)).catch(() => undefined);
+    return () => { socket.off('facebook:message', handleFacebookMessage); socket.disconnect(); };
+  }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, pages, tags]);
+
   // Receive real WhatsApp text messages without replacing the active selection.
   useEffect(() => {
     if (!isLoggedIn) return;
     const socket = whatsappApi.socket();
     const handleWhatsAppMessage = (incoming: WhatsAppIncomingMessage) => {
+      if (isPromotionalMessage(incoming.content, incoming.senderName)) return;
       const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
       let conversationId = '';
       let nextMessage: Message | null = null;

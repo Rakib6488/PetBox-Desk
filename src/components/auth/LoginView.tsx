@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { authApi } from '../../features/auth/authApi';
 import {
-  MessageSquare,
   Lock,
   Mail,
   ArrowRight,
@@ -33,13 +32,23 @@ export const LoginView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-full flex-1 flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-[#0F172A] text-slate-100 select-none relative overflow-y-auto">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10">
+    <div
+      className="min-h-full flex-1 flex items-center justify-center p-4 sm:p-8 bg-[#071C2C] text-slate-100 select-none relative overflow-y-auto"
+      style={{ backgroundImage: "url('/petbox-login-bg.svg')", backgroundSize: 'cover', backgroundPosition: 'center' }}
+    >
+      <div className="absolute inset-0 bg-[#061827]/25" aria-hidden="true" />
+      <div className="relative z-10 w-full max-w-5xl grid lg:grid-cols-[1fr_420px] gap-10 items-center">
+        <div className="hidden lg:flex flex-col items-start pl-6 xl:pl-14">
+          <img src="/petbox-live-chat-logo.svg" alt="Petbox live chat" className="w-36 h-36 mb-5" />
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-teal-200/80">Petbox customer care</p>
+          <h1 className="mt-3 max-w-md text-5xl font-black leading-[1.05] tracking-tight text-white">Every pet deserves a helpful hello.</h1>
+          <p className="mt-5 max-w-sm text-sm leading-6 text-slate-300">Manage every conversation, question, and happy tail wag from one friendly workspace.</p>
+        </div>
+
+        <div className="w-full sm:mx-auto sm:max-w-md">
         {/* Brand Header */}
-        <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-teal-600 flex items-center justify-center text-white shadow-lg mb-3">
-            <MessageSquare className="w-6 h-6" />
-          </div>
+        <div className="flex flex-col items-center text-center mb-6 lg:hidden">
+          <img src="/petbox-live-chat-logo.svg" alt="Petbox live chat" className="w-20 h-20 mb-3" />
           <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
             Petbox Desk
           </h2>
@@ -49,7 +58,7 @@ export const LoginView: React.FC = () => {
         </div>
 
         {/* Login Card */}
-        <div className="bg-slate-900 border border-slate-800 py-7 px-6 shadow-2xl rounded-2xl sm:px-8">
+        <div className="bg-slate-900/95 backdrop-blur-sm border border-white/10 py-7 px-6 shadow-2xl rounded-2xl sm:px-8">
           <form className="space-y-4" onSubmit={handleLogin}>
             {error && <div className="rounded-lg border border-rose-800 bg-rose-950/40 px-3 py-2 text-xs text-rose-300">{error}</div>}
             <div>
@@ -135,6 +144,7 @@ export const LoginView: React.FC = () => {
           Petbox Desk &copy; 2026. All rights reserved.
         </p>
       </div>
+    </div>
     </div>
   );
 };

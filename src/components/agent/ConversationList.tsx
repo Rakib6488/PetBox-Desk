@@ -37,7 +37,7 @@ export const ConversationList: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const filteredConversations = conversations.filter((c) => {
+  const filteredConversations = isAgentPaused ? [] : conversations.filter((c) => {
     if (activeFilter === 'bookmarked') return c.isBookmarked && c.status !== 'closed';
     if (activeFilter === 'assigned') return c.assignedAgentId === currentUser.id && (c.status === 'open' || c.status === 'pending');
     return c.status === 'open' || c.status === 'pending';
@@ -130,7 +130,7 @@ export const ConversationList: React.FC = () => {
       <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
         {filteredConversations.length === 0 ? (
           <div className="p-6 text-center text-xs text-slate-400">
-            No active landed conversations.
+            {isAgentPaused ? 'Click Resume to view and receive conversations.' : 'No active landed conversations.'}
           </div>
         ) : (
           filteredConversations.map((conv) => {
