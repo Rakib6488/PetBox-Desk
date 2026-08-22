@@ -18,15 +18,20 @@ coreRouter.post('/auth/login', async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
   const db = await checkDatabaseConnection();
   if (!db.connected || !dbPool) return res.status(503).json({ error: 'Database is not available.' });
-  const result = await dbPool.query(
-    'SELECT id, name, email, role, status, avatar, status_started_at AS "statusStartedAt", created_at AS "createdAt", password_hash FROM users WHERE lower(email) = lower($1)',
-    [email.trim()]
-  );
-  const user = result.rows[0];
-  if (!user || !verifyPassword(password, user.password_hash)) return res.status(401).json({ error: 'Invalid email or password.' });
-  const { password_hash: _passwordHash, ...safeUser } = user;
-  setSessionCookie(res, createSessionToken(user.id, user.role));
-  res.json({ user: safeUser });
+  try {
+    const result = await dbPool.query(
+      'SELECT id, name, email, role, status, avatar, status_started_at AS "statusStartedAt", created_at AS "createdAt", password_hash FROM users WHERE lower(email) = lower($1)',
+      [email.trim()]
+    );
+    const user = result.rows[0];
+    if (!user || !verifyPassword(password, user.password_hash)) return res.status(401).json({ error: 'Invalid email or password.' });
+    const { password_hash: _passwordHash, ...safeUser } = user;
+    setSessionCookie(res, createSessionToken(user.id, user.role));
+    res.json({ user: safeUser });
+  } catch (error: any) {
+    console.error('Login database query failed:', error?.message || error);
+    res.status(503).json({ error: 'Database schema is unavailable. Run the database initialization.' });
+  }
 });
 
 coreRouter.post('/auth/logout', (_req, res) => {

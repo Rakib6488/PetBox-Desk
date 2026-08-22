@@ -1232,6 +1232,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Initial auto-sync with live IMAP mailbox
   useEffect(() => {
+    // The email API is protected by authentication. Do not start IMAP sync
+    // while the login screen is still active; that only creates an expected
+    // 401 request before a session exists.
+    if (!isLoggedIn) return;
+
     emailApi.fetch(25)
       .then((data) => {
         if (data && data.success && Array.isArray(data.emails) && data.emails.length > 0) {
@@ -1242,7 +1247,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // Fallback silently if offline or initial boot
         console.log('Background IMAP sync initialized:', err.message);
       });
-  }, []);
+  }, [isLoggedIn]);
 
   // Reset all data to default
   const resetAllData = () => {
