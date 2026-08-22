@@ -151,7 +151,7 @@ export const ConversationList: React.FC = () => {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      conv.contact.name.charAt(0).toUpperCase()
+                      String(conv.contact?.name || 'C').charAt(0).toUpperCase()
                     )}
                   </div>
 

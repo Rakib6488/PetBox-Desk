@@ -11,6 +11,16 @@ await viteBuild({
   configFile: false,
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': projectRoot } },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          charts: ['recharts'],
+          icons: ['lucide-react'],
+        },
+      },
+    },
+  },
 });
 
 console.log('Petbox Desk frontend production build completed. Start the TypeScript server with `npm start`.');

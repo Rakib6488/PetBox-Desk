@@ -80,10 +80,10 @@ export const RightPanel: React.FC = () => {
     if (activeQrTab === 'admin' && qr.category !== 'admin') return false;
 
     if (qrSearch.trim()) {
-      const q = qrSearch.toLowerCase();
+      const q = String(qrSearch || '').toLowerCase();
       return (
-        qr.title.toLowerCase().includes(q) ||
-        qr.content.toLowerCase().includes(q)
+        String(qr.title || '').toLowerCase().includes(q) ||
+        String(qr.content || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -99,7 +99,7 @@ export const RightPanel: React.FC = () => {
             {contact.avatar ? (
               <img src={contact.avatar} alt={contact.name} className="w-full h-full object-cover rounded-full" />
             ) : (
-              contact.name.charAt(0).toUpperCase()
+              String(contact?.name || 'C').charAt(0).toUpperCase()
             )}
           </div>
           <h4 className="font-bold text-slate-900 text-xs truncate">{contact.name}</h4>

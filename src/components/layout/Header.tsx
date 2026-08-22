@@ -230,7 +230,7 @@ export const Header: React.FC = () => {
                 <div className="text-[11px] text-slate-500">{currentUser.email}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-[10px]">
                   <span className="px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 font-semibold border border-teal-200">
-                    {currentUser.role.toUpperCase()}
+                    {String(currentUser.role || 'agent').toUpperCase()}
                   </span>
                   <span className="text-slate-400">
                     Status: <strong className="text-emerald-600">{currentUser.status}</strong> (

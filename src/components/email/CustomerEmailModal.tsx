@@ -114,11 +114,11 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
       // Search filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchSubject = email.subject.toLowerCase().includes(q);
-        const matchName = email.fromName.toLowerCase().includes(q);
-        const matchEmail = email.fromEmail.toLowerCase().includes(q);
-        const matchTicket = email.ticketNumber.toLowerCase().includes(q);
-        const matchBody = email.body.toLowerCase().includes(q);
+        const matchSubject = String(email.subject || '').toLowerCase().includes(q);
+        const matchName = String(email.fromName || '').toLowerCase().includes(q);
+        const matchEmail = String(email.fromEmail || '').toLowerCase().includes(q);
+        const matchTicket = String(email.ticketNumber || '').toLowerCase().includes(q);
+        const matchBody = String(email.body || '').toLowerCase().includes(q);
         const matchAccount = email.accountNumber?.includes(q);
         return matchSubject || matchName || matchEmail || matchTicket || matchBody || matchAccount;
       }
@@ -525,7 +525,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            email.fromName.charAt(0).toUpperCase()
+                            String(email.fromName || 'U').charAt(0).toUpperCase()
                           )}
                         </div>
                         {/* Channel Badge */}
@@ -588,7 +588,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
                                   : 'bg-slate-100 text-slate-600'
                               }`}
                             >
-                              {email.priority.toUpperCase()}
+                              {String(email.priority || 'medium').toUpperCase()}
                             </span>
                             <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded truncate max-w-[120px]">
                               {email.category}

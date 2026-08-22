@@ -99,14 +99,28 @@ coreRouter.patch('/conversations/:id', requireAuth, async (req, res) => {
 
 coreRouter.post('/conversations/:id/messages', requireAuth, async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
-  const { content, messageType = 'text' } = req.body || {};
+  const { content, messageType = 'text', channel = 'live_chat' } = req.body || {};
   if (!content?.trim()) return res.status(400).json({ error: 'Message content is required.' });
-  const result = await dbPool.query(
-    `INSERT INTO messages (id, conversation_id, sender_type, sender_id, content, message_type)
-     VALUES ($1, $2, 'agent', $3, $4, $5)
-     RETURNING id, conversation_id AS "conversationId", sender_type AS "senderType", sender_id AS "senderId", content, message_type AS "messageType", created_at AS "createdAt"`,
-    [`msg_${crypto.randomUUID()}`, req.params.id, res.locals.user.id, content.trim(), messageType]
-  );
-  await dbPool.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [req.params.id]);
-  res.status(201).json({ message: result.rows[0] });
+  const safeChannel = ['facebook', 'live_chat', 'email'].includes(channel) ? channel : 'live_chat';
+  try {
+    // Workspace state can contain a conversation before the relational row
+    // exists on a fresh Render database. Create the missing parent row first.
+    await dbPool.query(
+      `INSERT INTO conversations (id, channel, status, subject)
+       VALUES ($1, $2, 'open', '')
+       ON CONFLICT (id) DO NOTHING`,
+      [req.params.id, safeChannel]
+    );
+    const result = await dbPool.query(
+      `INSERT INTO messages (id, conversation_id, sender_type, sender_id, content, message_type)
+       VALUES ($1, $2, 'agent', $3, $4, $5)
+       RETURNING id, conversation_id AS "conversationId", sender_type AS "senderType", sender_id AS "senderId", content, message_type AS "messageType", created_at AS "createdAt"`,
+      [`msg_${crypto.randomUUID()}`, req.params.id, res.locals.user.id, content.trim(), messageType]
+    );
+    await dbPool.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [req.params.id]);
+    res.status(201).json({ message: result.rows[0] });
+  } catch (error: any) {
+    console.error('Message persistence failed:', error?.message || error);
+    res.status(503).json({ error: 'Unable to save the message.' });
+  }
 });

@@ -1,9 +1,9 @@
 import { apiRequest } from '../../services/apiClient';
 
 export const inboxApi = {
-  sendMessage: (conversationId: string, content: string, messageType = 'text') =>
+  sendMessage: (conversationId: string, content: string, messageType = 'text', channel = 'live_chat') =>
     apiRequest(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
-      method: 'POST', body: JSON.stringify({ content, messageType }),
+      method: 'POST', body: JSON.stringify({ content, messageType, channel }),
     }),
   updateConversation: (conversationId: string, fields: Record<string, unknown>) =>
     apiRequest(`/api/conversations/${encodeURIComponent(conversationId)}`, {

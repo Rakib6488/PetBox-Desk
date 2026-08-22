@@ -15,6 +15,10 @@ import {
 
 dotenv.config();
 
+if (process.env.ALLOW_DEMO_SEED !== 'true') {
+  throw new Error('Demo workspace seeding is disabled. Set ALLOW_DEMO_SEED=true only for local development.');
+}
+
 if (!dbPool) throw new Error('DATABASE_URL is required.');
 
 const state = {

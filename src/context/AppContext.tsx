@@ -861,7 +861,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       senderType: 'system',
       senderId: currentUser.id,
       senderName: 'System',
-      content: `Conversation closed by ${currentUser.name}. Final Tag: "${tag.name}", Sentiment: "${sentiment.toUpperCase()}".`,
+      content: `Conversation closed by ${currentUser.name}. Final Tag: "${tag.name}", Sentiment: "${String(sentiment || 'neutral').toUpperCase()}".`,
       messageType: 'text',
       createdAt: now,
       isRead: true,
