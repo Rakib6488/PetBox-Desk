@@ -43,7 +43,7 @@ export const ConversationList: React.FC = () => {
   };
 
   return (
-    <div className="w-64 sm:w-72 border-r border-slate-200 bg-white flex flex-col h-full shrink-0 select-none">
+    <div className="w-56 lg:w-64 xl:w-72 border-r border-slate-200 bg-white flex flex-col h-full shrink-0 select-none">
       {/* Top Sub-Filter Row matching screenshot */}
       <div className="p-2 border-b border-slate-200 flex items-center justify-between bg-white">
         {/* Filter Icons */}

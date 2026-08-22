@@ -424,7 +424,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ? '/admin/dashboard' as AppRoute
       : currentUser.role !== 'admin' && requestedRoute.startsWith('/admin')
         ? '/agent/inbox' as AppRoute
-      : !['admin', 'supervisor', 'bi'].includes(currentUser.role) && requestedRoute.startsWith('/bi/')
+      : !['admin', 'supervisor', 'bi'].includes(currentUser.role) && requestedRoute.startsWith('/bi/') && requestedRoute !== '/bi/summary'
         ? '/agent/inbox' as AppRoute
         : currentUser.role === 'bi' && requestedRoute.startsWith('/agent')
           ? '/bi/summary' as AppRoute
@@ -631,6 +631,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const activeConversation = selectedConversation;
     const isExternalChannel = activeConversation?.channelType === 'email' || activeConversation?.channelType === 'facebook';
+    const withDeliveryTimeout = <T,>(promise: Promise<T>, timeoutMs = 12000) => Promise.race([
+      promise,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Delivery timed out. Please retry.')), timeoutMs)),
+    ]);
     const newMessage: Message = {
       id: `msg_${Date.now()}`,
       conversationId: selectedConversationId,
@@ -652,18 +656,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       .then(() => { if (!isExternalChannel) updateDeliveryStatus('sent'); })
       .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('MESSAGE_PERSISTENCE_FAILED', 'Conversation', selectedConversationId, error?.message || 'Unable to save message.'); });
     if (activeConversation?.channelType === 'facebook' && activeConversation.contact.facebookPsid) {
-      void channelApi.sendFacebookMessage({ recipientId: activeConversation.contact.facebookPsid, text: content })
+      void withDeliveryTimeout(channelApi.sendFacebookMessage({ recipientId: activeConversation.contact.facebookPsid, text: content }))
         .then(() => { updateDeliveryStatus('sent'); addAuditLog('FACEBOOK_MESSAGE_SENT', 'Conversation', selectedConversationId, `Facebook message accepted for ${activeConversation.contact.name}`); })
         .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('FACEBOOK_MESSAGE_FAILED', 'Conversation', selectedConversationId, `Facebook message failed: ${error?.message || 'Facebook delivery failed'}`); });
     }
     if (activeConversation?.channelType === 'email' && activeConversation.contact.email && emailSettings.allowReplies && emailSettings.enabled) {
-      void emailApi.send({
+      void withDeliveryTimeout(emailApi.send({
         to: activeConversation.contact.email,
         subject: activeConversation.subject?.startsWith('Re:') ? activeConversation.subject : `Re: ${activeConversation.subject || 'Petbox Desk Support'}`,
         body: content,
         inReplyTo: activeConversation.emailMessageId,
         references: [activeConversation.emailReferences, activeConversation.emailMessageId].filter(Boolean).join(' '),
-      }).then(() => {
+      })).then(() => {
         updateDeliveryStatus('sent');
         if (activeConversation.sourceEmailId) {
           setCustomerEmails((prev) => prev.map((email) => email.id === activeConversation.sourceEmailId ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name } : email));
@@ -675,7 +679,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addAuditLog('EMAIL_REPLY_FAILED', 'Conversation', selectedConversationId, `Email reply failed for ${activeConversation.contact.email}: ${error?.message || 'SMTP request failed'}`);
       });
     } else if (activeConversation?.channelType === 'email') {
+      updateDeliveryStatus('failed');
       addAuditLog('EMAIL_REPLY_BLOCKED', 'Conversation', selectedConversationId, 'Email reply blocked by Admin email operations settings or missing customer email address.');
+    } else if (activeConversation?.channelType === 'facebook') {
+      updateDeliveryStatus('failed');
+      addAuditLog('FACEBOOK_MESSAGE_BLOCKED', 'Conversation', selectedConversationId, 'Facebook reply blocked because the customer PSID is missing.');
     }
 
     // Update conversation metadata

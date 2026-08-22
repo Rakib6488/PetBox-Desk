@@ -42,7 +42,7 @@ export const RightPanel: React.FC = () => {
 
   if (!selectedConversation) {
     return (
-      <div className="w-72 sm:w-80 border-l border-slate-200 bg-white p-4 text-center text-slate-400 text-xs select-none">
+      <div className="hidden xl:flex xl:w-80 border-l border-slate-200 bg-white p-4 text-center text-slate-400 text-xs select-none">
         No contact selected
       </div>
     );
@@ -96,7 +96,7 @@ export const RightPanel: React.FC = () => {
   });
 
   return (
-    <div className="w-72 sm:w-80 border-l border-slate-200 bg-white flex flex-col h-full shrink-0 select-none overflow-hidden text-xs">
+    <div className="hidden xl:flex xl:w-80 border-l border-slate-200 bg-white flex-col h-full shrink-0 select-none overflow-hidden text-xs">
       {/* Contact Profile Header matching screenshot */}
       <div className="p-3 border-b border-slate-200 flex flex-col gap-2">
         {/* Customer name and avatar */}

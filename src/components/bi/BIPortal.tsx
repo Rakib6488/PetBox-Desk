@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -24,7 +24,7 @@ const tabItems: Array<{ id: BiTab; route: AppRoute; label: string }> = [
 ];
 
 export const BIPortal: React.FC = () => {
-  const { conversations, users, tags, pages, slaRules, messages, customerEmails, waitingQueue, auditLogs, navigateTo, currentRoute } = useApp();
+  const { conversations, selectedConversation, users, tags, pages, slaRules, messages, customerEmails, waitingQueue, auditLogs, navigateTo, currentRoute } = useApp();
   const [dateRange, setDateRange] = useState<DateRange>('last_7_days');
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedChannel, setSelectedChannel] = useState<ChannelType | 'all'>('all');
@@ -38,6 +38,12 @@ export const BIPortal: React.FC = () => {
     const routeTab = tabItems.find((item) => item.route === currentRoute);
     return routeTab?.id || 'summary';
   });
+
+  useEffect(() => {
+    if (currentRoute === '/bi/summary' && selectedConversation) {
+      setSelectedSummary(selectedConversation);
+    }
+  }, [currentRoute, selectedConversation?.id]);
 
   const filtered = useMemo(() => {
     const days = dateRange === 'today' ? 1 : dateRange === 'last_30_days' ? 30 : 7;

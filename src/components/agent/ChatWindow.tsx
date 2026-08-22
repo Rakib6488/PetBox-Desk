@@ -58,8 +58,6 @@ export const ChatWindow: React.FC = () => {
       }
       if (selectedConversation.tags && selectedConversation.tags.length > 0) {
         setActiveTag(selectedConversation.tags[0]);
-      } else if (tags.length > 0) {
-        setActiveTag(tags[0]);
       }
     }
   }, [selectedConversation?.id, tags]);
@@ -141,7 +139,7 @@ export const ChatWindow: React.FC = () => {
       : { label: 'Messenger', icon: <Facebook className="w-3 h-3" />, color: 'bg-[#1877F2]' };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#F8FAFC] h-full overflow-hidden select-none relative">
+    <div className="min-w-0 flex-1 flex flex-col bg-[#F8FAFC] h-full overflow-hidden select-none relative">
       {/* Top Header Bar: Petbox Desk channel and agent controls */}
       <div className="h-10 bg-white border-b border-slate-200 px-3 flex items-center justify-between shrink-0 z-10">
         {/* Channel and page */}
@@ -438,11 +436,11 @@ export const ChatWindow: React.FC = () => {
         {/* Bottom Action Bar matching screenshot: Tag selector + Sentiment dropdown + Red "End" button */}
         <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 pt-1">
           {/* Left: Tag selector box matching screenshot: SPAM_Q » Other » und... ✖ */}
-          <div className="flex min-w-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2">
+          <div className="flex w-[230px] shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2">
             <span className="text-[10px] font-bold uppercase text-slate-400">Category</span>
-            <div className="flex min-w-0 max-w-[220px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
+            <div className="flex min-w-0 max-w-[150px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
               <span className="min-w-0 truncate">
-                {activeTag ? activeTag.name : 'Add a tag'}
+                {activeTag?.name?.includes('Other') ? 'Other' : activeTag?.name || 'Other'}
               </span>
               <button
                 onClick={() => setActiveTag(null)}
