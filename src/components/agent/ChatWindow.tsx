@@ -20,6 +20,7 @@ import {
   Facebook,
   Globe,
   Mail,
+  MessageCircle,
 } from 'lucide-react';
 
 export const ChatWindow: React.FC = () => {
@@ -134,6 +135,8 @@ export const ChatWindow: React.FC = () => {
   const emojis = ['👍', '🙏', '😊', '❤️', '✅', '⚠️', '🎉', '📌', '🤝', '🙌'];
   const channelMeta = selectedConversation.channelType === 'email'
     ? { label: 'Email', icon: <Mail className="w-3 h-3" />, color: 'bg-sky-600' }
+    : selectedConversation.channelType === 'whatsapp'
+      ? { label: 'WhatsApp', icon: <MessageCircle className="w-3 h-3" />, color: 'bg-emerald-600' }
     : selectedConversation.channelType === 'live_chat'
       ? { label: 'Live chat', icon: <Globe className="w-3 h-3" />, color: 'bg-orange-500' }
       : { label: 'Messenger', icon: <Facebook className="w-3 h-3" />, color: 'bg-[#1877F2]' };

@@ -30,7 +30,9 @@ npm run db:init
 npm run db:create-user -- support@example.com "Support Admin" admin "use-a-strong-password"
 ```
 
-The main protected endpoints are `/api/auth/*`, `/api/bootstrap`, `/api/conversations/:id`, and `/api/email/*`. Authentication uses an HttpOnly session cookie; passwords are hashed with Node.js `scrypt`.
+The main protected endpoints are `/api/auth/*`, `/api/state`, `/api/conversations/:id`, `/api/email/*`, and `/api/whatsapp/*`. Authentication uses an HttpOnly session cookie; passwords are hashed with Node.js `scrypt`.
+
+The integrated root server is protected by the normal session cookie. The standalone WhatsApp server is intended only for trusted internal callers and requires `WHATSAPP_API_KEY`; do not expose it directly to browsers or the public internet.
 
 ## Project structure
 

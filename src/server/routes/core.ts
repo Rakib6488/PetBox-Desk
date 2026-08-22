@@ -4,6 +4,14 @@ import { checkDatabaseConnection, dbPool } from '../db';
 import { clearSessionCookie, createSessionToken, hashPassword, requireAuth, setSessionCookie, verifyPassword } from '../auth';
 
 export const coreRouter = Router();
+const loginFailures = new Map<string, { count: number; resetAt: number }>();
+const loginWindowMs = 15 * 60 * 1000;
+const maxLoginFailures = 5;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of loginFailures) if (value.resetAt <= now) loginFailures.delete(key);
+}, loginWindowMs).unref();
 
 coreRouter.get('/db/health', async (_req, res) => {
   const database = await checkDatabaseConnection();
@@ -16,6 +24,11 @@ coreRouter.get('/db/health', async (_req, res) => {
 coreRouter.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
+  const attemptKey = `${req.ip}:${String(email).trim().toLowerCase()}`;
+  const attempt = loginFailures.get(attemptKey);
+  if (attempt && attempt.resetAt > Date.now() && attempt.count >= maxLoginFailures) {
+    return res.status(429).json({ error: 'Too many login attempts. Try again later.' });
+  }
   const db = await checkDatabaseConnection();
   if (!db.connected || !dbPool) return res.status(503).json({ error: 'Database is not available.' });
   try {
@@ -24,7 +37,13 @@ coreRouter.post('/auth/login', async (req, res) => {
       [email.trim()]
     );
     const user = result.rows[0];
-    if (!user || !verifyPassword(password, user.password_hash)) return res.status(401).json({ error: 'Invalid email or password.' });
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      const current = loginFailures.get(attemptKey);
+      const next = current && current.resetAt > Date.now() ? { count: current.count + 1, resetAt: current.resetAt } : { count: 1, resetAt: Date.now() + loginWindowMs };
+      loginFailures.set(attemptKey, next);
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    loginFailures.delete(attemptKey);
     const { password_hash: _passwordHash, ...safeUser } = user;
     setSessionCookie(res, createSessionToken(user.id, user.role));
     res.json({ user: safeUser });
@@ -69,19 +88,38 @@ coreRouter.post('/admin/users', requireAuth, async (req, res) => {
 
 coreRouter.get('/state', requireAuth, async (_req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
-  const result = await dbPool.query('SELECT state, updated_at AS "updatedAt" FROM workspace_state WHERE id = \'default\'');
-  res.json(result.rows[0] || { state: null });
+  try {
+    const result = await dbPool.query('SELECT state, updated_at AS "updatedAt" FROM workspace_state WHERE id = \'default\'');
+    res.json(result.rows[0] || { state: null });
+  } catch (error) {
+    console.error('State load failed:', error);
+    res.status(503).json({ error: 'Unable to load workspace state.' });
+  }
 });
 
 coreRouter.put('/state', requireAuth, async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
-  if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'State object is required.' });
-  await dbPool.query(
-    `INSERT INTO workspace_state (id, state) VALUES ('default', $1::jsonb)
-     ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()`,
-    [JSON.stringify(req.body)]
-  );
-  res.json({ success: true });
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'State object is required.' });
+  if (JSON.stringify(req.body).length > 12_000_000) return res.status(413).json({ error: 'State payload is too large.' });
+  try {
+    const current = await dbPool.query('SELECT state FROM workspace_state WHERE id = \'default\'');
+    const previous = current.rows[0]?.state || {};
+    const incoming = req.body as Record<string, unknown>;
+    const protectedKeys = ['users', 'pages', 'tags', 'quickResponses', 'slaRules', 'emailSettings', 'landingLimit', 'auditLogs'];
+    const state = { ...previous, ...incoming } as Record<string, unknown>;
+    if (res.locals.user.role !== 'admin') {
+      for (const key of protectedKeys) state[key] = previous[key];
+    }
+    await dbPool.query(
+      `INSERT INTO workspace_state (id, state) VALUES ('default', $1::jsonb)
+       ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()`,
+      [JSON.stringify(state)]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('State save failed:', error);
+    res.status(503).json({ error: 'Unable to save workspace state.' });
+  }
 });
 
 coreRouter.patch('/conversations/:id', requireAuth, async (req, res) => {
@@ -92,16 +130,23 @@ coreRouter.patch('/conversations/:id', requireAuth, async (req, res) => {
   const values = updates.map(([, value]) => value);
   const setClause = updates.map(([key], index) => `${key} = $${index + 1}`).join(', ');
   values.push(req.params.id);
-  const result = await dbPool.query(`UPDATE conversations SET ${setClause}, updated_at = NOW() WHERE id = $${values.length} RETURNING id`, values);
-  if (!result.rowCount) return res.status(404).json({ error: 'Conversation not found.' });
-  res.json({ success: true });
+  try {
+    const result = await dbPool.query(`UPDATE conversations SET ${setClause}, updated_at = NOW() WHERE id = $${values.length} RETURNING id`, values);
+    if (!result.rowCount) return res.status(404).json({ error: 'Conversation not found.' });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Conversation update failed:', error);
+    res.status(503).json({ error: 'Unable to update conversation.' });
+  }
 });
 
 coreRouter.post('/conversations/:id/messages', requireAuth, async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   const { content, messageType = 'text', channel = 'live_chat' } = req.body || {};
-  if (!content?.trim()) return res.status(400).json({ error: 'Message content is required.' });
-  const safeChannel = ['facebook', 'live_chat', 'email'].includes(channel) ? channel : 'live_chat';
+  if (typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Message content is required.' });
+  if (content.length > 10000) return res.status(413).json({ error: 'Message content is too large.' });
+  if (!['text', 'image', 'file', 'audio', 'product_card'].includes(messageType)) return res.status(400).json({ error: 'Unsupported message type.' });
+  const safeChannel = ['facebook', 'live_chat', 'email', 'whatsapp'].includes(channel) ? channel : 'live_chat';
   try {
     // Workspace state can contain a conversation before the relational row
     // exists on a fresh Render database. Create the missing parent row first.

@@ -28,7 +28,7 @@ export type AppRoute =
 
 export type UserRole = 'admin' | 'supervisor' | 'agent' | 'bi';
 export type AgentStatus = 'online' | 'away' | 'break' | 'offline';
-export type ChannelType = 'facebook' | 'live_chat' | 'email';
+export type ChannelType = 'facebook' | 'live_chat' | 'email' | 'whatsapp';
 export type ConversationStatus = 'open' | 'pending' | 'paused' | 'closed';
 export type SentimentType = 'positive' | 'negative' | 'neutral';
 export type SenderType = 'agent' | 'contact' | 'system';
@@ -74,6 +74,7 @@ export interface Contact {
   id: string;
   name: string;
   facebookPsid?: string;
+  whatsappJid?: string;
   email?: string;
   phone?: string;
   avatar: string;

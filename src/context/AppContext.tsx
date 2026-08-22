@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from 'react';
 import {
   User,
   PageChannel,
@@ -24,6 +24,7 @@ import { authApi } from '../features/auth/authApi';
 import { inboxApi } from '../features/inbox/inboxApi';
 import { emailApi } from '../features/email/emailApi';
 import { channelApi } from '../features/channels/channelApi';
+import { whatsappApi, type WhatsAppIncomingMessage } from '../features/whatsapp/whatsappApi';
 
 export type ActiveNavTab =
   | 'inbox'
@@ -481,6 +482,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     authCheckActiveRef.current = false;
     setCurrentUser(user);
     setIsLoggedIn(true);
+    setSelectedConversationId(null);
     setCurrentRoute(user.role === 'admin' ? '/admin/dashboard' : user.role === 'bi' ? '/bi/summary' : '/agent/inbox');
     setActiveTab(user.role === 'admin' ? 'admin' : user.role === 'bi' ? 'reports' : 'inbox');
     if (user.role === 'admin') setAdminSubTab('overview');
@@ -491,6 +493,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     authCheckActiveRef.current = false;
     void authApi.logout().catch(() => undefined);
     setIsLoggedIn(false);
+    setSelectedConversationId(null);
     navigateTo('/login');
   };
 
@@ -544,11 +547,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [isLoggedIn]);
 
   // Persist every workspace change to PostgreSQL. No browser storage fallback is used.
+  const saveStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (isLoggedIn && dbHydratedRef.current) {
+    if (!isLoggedIn || !dbHydratedRef.current) return;
+    if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
+    saveStateTimerRef.current = setTimeout(() => {
       void inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings })
         .catch((error) => console.error('Failed to persist workspace state to PostgreSQL', error));
-    }
+    }, 300);
+    return () => { if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current); };
   }, [isLoggedIn, users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings]);
 
   const updateEmailSettings = (settings: Partial<EmailOperationsSettings>) => {
@@ -630,7 +637,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!selectedConversationId || !content.trim()) return;
 
     const activeConversation = selectedConversation;
-    const isExternalChannel = activeConversation?.channelType === 'email' || activeConversation?.channelType === 'facebook';
+    const isExternalChannel = activeConversation?.channelType === 'email' || activeConversation?.channelType === 'facebook' || activeConversation?.channelType === 'whatsapp';
     const withDeliveryTimeout = <T,>(promise: Promise<T>, timeoutMs = 12000) => Promise.race([
       promise,
       new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Delivery timed out. Please retry.')), timeoutMs)),
@@ -652,11 +659,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setMessages((prev) => [...prev, newMessage]);
     const updateDeliveryStatus = (deliveryStatus: 'sent' | 'failed') => setMessages((prev) => prev.map((message) => message.id === newMessage.id ? { ...message, metadata: { ...message.metadata, deliveryStatus } } : message));
-    void inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'live_chat')
+    const persistMessage = () => inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'live_chat');
+    if (!isExternalChannel) void persistMessage()
       .then(() => { if (!isExternalChannel) updateDeliveryStatus('sent'); })
       .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('MESSAGE_PERSISTENCE_FAILED', 'Conversation', selectedConversationId, error?.message || 'Unable to save message.'); });
     if (activeConversation?.channelType === 'facebook' && activeConversation.contact.facebookPsid) {
       void withDeliveryTimeout(channelApi.sendFacebookMessage({ recipientId: activeConversation.contact.facebookPsid, text: content }))
+        .then(() => persistMessage())
         .then(() => { updateDeliveryStatus('sent'); addAuditLog('FACEBOOK_MESSAGE_SENT', 'Conversation', selectedConversationId, `Facebook message accepted for ${activeConversation.contact.name}`); })
         .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('FACEBOOK_MESSAGE_FAILED', 'Conversation', selectedConversationId, `Facebook message failed: ${error?.message || 'Facebook delivery failed'}`); });
     }
@@ -667,7 +676,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: content,
         inReplyTo: activeConversation.emailMessageId,
         references: [activeConversation.emailReferences, activeConversation.emailMessageId].filter(Boolean).join(' '),
-      })).then(() => {
+      })).then(() => persistMessage()).then(() => {
         updateDeliveryStatus('sent');
         if (activeConversation.sourceEmailId) {
           setCustomerEmails((prev) => prev.map((email) => email.id === activeConversation.sourceEmailId ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name } : email));
@@ -684,6 +693,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else if (activeConversation?.channelType === 'facebook') {
       updateDeliveryStatus('failed');
       addAuditLog('FACEBOOK_MESSAGE_BLOCKED', 'Conversation', selectedConversationId, 'Facebook reply blocked because the customer PSID is missing.');
+    } else if (activeConversation?.channelType === 'whatsapp' && activeConversation.contact.whatsappJid) {
+      void withDeliveryTimeout(whatsappApi.send(activeConversation.contact.whatsappJid, content))
+        .then(() => persistMessage())
+        .then(() => { updateDeliveryStatus('sent'); addAuditLog('WHATSAPP_MESSAGE_SENT', 'Conversation', selectedConversationId, `WhatsApp message accepted for ${activeConversation.contact.name}`); })
+        .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('WHATSAPP_MESSAGE_FAILED', 'Conversation', selectedConversationId, `WhatsApp message failed: ${error?.message || 'WhatsApp delivery failed'}`); });
+    } else if (activeConversation?.channelType === 'whatsapp') {
+      updateDeliveryStatus('failed');
+      addAuditLog('WHATSAPP_MESSAGE_BLOCKED', 'Conversation', selectedConversationId, 'WhatsApp reply blocked because the customer JID is missing.');
     }
 
     // Update conversation metadata
@@ -752,10 +769,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         : email
       ));
     }
-    if (selectedConversationId === conversationId) {
-      setSelectedConversationId(null);
-    }
-
     playSoundChime();
 
     // Check if page or conversation is paused, trigger auto-reply
@@ -1338,6 +1351,74 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         console.log('Background IMAP sync initialized:', err.message);
       });
   }, [isLoggedIn, emailSettings.enabled, emailSettings.autoSync]);
+
+  // Receive real WhatsApp text messages without replacing the active selection.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const socket = whatsappApi.socket();
+    const handleWhatsAppMessage = (incoming: WhatsAppIncomingMessage) => {
+      const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
+      let conversationId = '';
+      let nextMessage: Message | null = null;
+
+      setConversations((previous) => {
+        const existing = previous.find((conversation) => conversation.channelType === 'whatsapp' && conversation.contact.whatsappJid === incoming.senderId);
+        if (existing) {
+          conversationId = existing.id;
+          nextMessage = {
+            id: `wa_msg_${Date.now()}`,
+            conversationId,
+            senderType: 'contact',
+            senderId: existing.contactId,
+            senderName: incoming.senderName,
+            content: incoming.content,
+            messageType: 'text',
+            createdAt,
+            isRead: selectedConversationId === conversationId,
+          };
+          return previous.map((conversation) => conversation.id === conversationId ? {
+            ...conversation,
+            lastMessageAt: createdAt,
+            lastMessageText: incoming.content,
+            unreadCount: selectedConversationId === conversationId ? 0 : conversation.unreadCount + 1,
+            status: conversation.status === 'closed' ? 'open' : conversation.status,
+          } : conversation);
+        }
+
+        conversationId = `wa_conv_${Date.now()}`;
+        const contactId = `wa_contact_${incoming.senderId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const newConversation: Conversation = {
+          id: conversationId,
+          convUid: `WA-${Date.now()}`,
+          pageId: pages.find((page) => page.channelType === 'whatsapp')?.id || 'whatsapp',
+          pageName: pages.find((page) => page.channelType === 'whatsapp')?.name || 'WhatsApp Support',
+          channelType: 'whatsapp',
+          contactId,
+          contact: { id: contactId, name: incoming.senderName, whatsappJid: incoming.senderId, phone: incoming.senderId.split('@')[0], avatar: '', createdAt },
+          assignedAgentId: currentUser.id,
+          assignedAgent: currentUser,
+          status: 'open',
+          sentiment: 'neutral',
+          tags: tags.length ? [tags[0]] : [],
+          lastMessageAt: createdAt,
+          lastMessageText: incoming.content,
+          unreadCount: 1,
+          createdAt,
+          priority: 'medium',
+        };
+        nextMessage = { id: `wa_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: false };
+        newConversation.summary = createConversationSummary(newConversation, [nextMessage]);
+        return [newConversation, ...previous];
+      });
+
+      if (nextMessage) setMessages((previous) => [...previous, nextMessage as Message]);
+      if (conversationId) addAuditLog('WHATSAPP_MESSAGE_RECEIVED', 'Conversation', conversationId, `Received WhatsApp message from ${incoming.senderName}`);
+      playSoundChime();
+    };
+
+    socket.on('whatsapp:message', handleWhatsAppMessage);
+    return () => { socket.off('whatsapp:message', handleWhatsAppMessage); socket.disconnect(); };
+  }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, currentUser.avatar, pages, tags]);
 
   // Reset all data to default
   const resetAllData = () => {

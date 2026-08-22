@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PageChannel, User, Tag, QuickResponse, SLARule, UserRole } from '../../types';
 import { adminApi } from '../../features/admin/adminApi';
+import { whatsappApi, type WhatsAppStatus } from '../../features/whatsapp/whatsappApi';
 import {
   Users,
   Layers,
@@ -25,6 +26,7 @@ import {
   Sliders,
   Check,
   Tag as TagIcon,
+  Smartphone,
 } from 'lucide-react';
 
 type AdminTab =
@@ -113,6 +115,30 @@ export const AdminPortal: React.FC = () => {
   // Facebook connection state
   const [fbConnectModalOpen, setFbConnectModalOpen] = useState(false);
   const [newFbPageName, setNewFbPageName] = useState('Petbox Customer Hub');
+  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({ connected: false });
+  const [whatsappQr, setWhatsappQr] = useState('');
+  const [whatsappBusy, setWhatsappBusy] = useState(false);
+  const [whatsappError, setWhatsappError] = useState('');
+
+  useEffect(() => {
+    const socket = whatsappApi.socket();
+    void whatsappApi.status().then(setWhatsappStatus).catch(() => undefined);
+    socket.on('whatsapp:qr', (dataUrl: string) => { setWhatsappQr(dataUrl); setWhatsappError(''); });
+    socket.on('whatsapp:connected', (status: WhatsAppStatus) => { setWhatsappStatus({ connected: true, phoneNumber: status.phoneNumber }); setWhatsappQr(''); setWhatsappBusy(false); });
+    socket.on('whatsapp:disconnected', () => { setWhatsappStatus({ connected: false }); setWhatsappQr(''); setWhatsappBusy(false); });
+    return () => { socket.disconnect(); };
+  }, []);
+
+  const handleWhatsAppConnect = async () => {
+    setWhatsappBusy(true);
+    setWhatsappError('');
+    try { await whatsappApi.connect(); } catch (error) { setWhatsappBusy(false); setWhatsappError(error instanceof Error ? error.message : 'Unable to start WhatsApp connection.'); }
+  };
+
+  const handleWhatsAppDisconnect = async () => {
+    setWhatsappBusy(true);
+    try { await whatsappApi.disconnect(); setWhatsappStatus({ connected: false }); setWhatsappQr(''); } catch (error) { setWhatsappError(error instanceof Error ? error.message : 'Unable to disconnect WhatsApp.'); } finally { setWhatsappBusy(false); }
+  };
 
   // Pause page modal state
   const [pausePageId, setPausePageId] = useState<string | null>(null);
@@ -419,6 +445,25 @@ export const AdminPortal: React.FC = () => {
       {/* TAB CONTENT: Pages & Channels */}
       {activeTab === 'pages' && (
         <div className="space-y-6">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800"><Smartphone className="h-4 w-4 text-emerald-600" /> WhatsApp connection</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Connect a WhatsApp Web session with a real QR code.</p>
+                <p className={`mt-2 text-xs font-semibold ${whatsappStatus.connected ? 'text-emerald-600' : 'text-slate-500'}`}>
+                  {whatsappStatus.connected ? `Connected${whatsappStatus.phoneNumber ? `: ${whatsappStatus.phoneNumber}` : ''}` : whatsappQr ? 'Waiting for QR scan' : 'Disconnected'}
+                </p>
+                {whatsappError && <p className="mt-2 text-xs text-rose-600">{whatsappError}</p>}
+              </div>
+              {whatsappStatus.connected ? (
+                <button type="button" onClick={() => void handleWhatsAppDisconnect()} disabled={whatsappBusy} className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50">{whatsappBusy ? 'Disconnecting…' : 'Disconnect'}</button>
+              ) : (
+                <button type="button" onClick={() => void handleWhatsAppConnect()} disabled={whatsappBusy} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">{whatsappBusy ? 'Starting…' : 'Connect via QR'}</button>
+              )}
+            </div>
+            {whatsappQr && !whatsappStatus.connected && <div className="mt-4 flex justify-center rounded-xl border border-slate-200 bg-slate-50 p-4"><img src={whatsappQr} alt="Scan this QR code with WhatsApp" className="h-64 w-64 rounded-lg bg-white p-2" /></div>}
+          </div>
+
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">

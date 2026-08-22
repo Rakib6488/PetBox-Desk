@@ -7,7 +7,7 @@ dotenv.config();
 
 const COOKIE_NAME = 'idesk_session';
 const TOKEN_TTL_SECONDS = 8 * 60 * 60;
-const secret = process.env.SESSION_SECRET || 'change-this-session-secret';
+const secret = process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('SESSION_SECRET is required in production.'); })() : 'local-development-session-secret');
 
 function sign(value: string) {
   return crypto.createHmac('sha256', secret).update(value).digest('hex');
@@ -40,6 +40,7 @@ export function verifyPassword(password: string, stored: string) {
   const [, salt, expected] = stored.split('$');
   if (!salt || !expected) return false;
   const actual = crypto.scryptSync(password, salt, 64).toString('hex');
+  if (actual.length !== expected.length) return false;
   return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
 }
 
@@ -49,17 +50,33 @@ function getCookie(req: Request, name: string) {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const session = verifySessionToken(getCookie(req, COOKIE_NAME));
-  if (!session) return res.status(401).json({ error: 'Authentication required.' });
-  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
-  const result = await dbPool.query('SELECT id, name, email, role, status, avatar, created_at AS "createdAt" FROM users WHERE id = $1', [session.userId]);
-  if (!result.rows[0]) return res.status(401).json({ error: 'Session user no longer exists.' });
-  res.locals.user = result.rows[0];
+  try {
+    const session = verifySessionToken(getCookie(req, COOKIE_NAME));
+    if (!session) return res.status(401).json({ error: 'Authentication required.' });
+    if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+    const result = await dbPool.query('SELECT id, name, email, role, status, avatar, created_at AS "createdAt" FROM users WHERE id = $1', [session.userId]);
+    if (!result.rows[0]) return res.status(401).json({ error: 'Session user no longer exists.' });
+    if (result.rows[0].status === 'disabled') return res.status(403).json({ error: 'This user account is disabled.' });
+    res.locals.user = result.rows[0];
+    next();
+  } catch (error) {
+    console.error('Authentication middleware failed:', error);
+    res.status(503).json({ error: 'Authentication service is unavailable.' });
+  }
+}
+
+export function requireSameOrigin(req: Request, res: Response, next: NextFunction) {
+  const origin = req.headers.origin;
+  const configuredOrigin = process.env.CLIENT_ORIGIN;
+  if (origin && configuredOrigin && origin !== configuredOrigin) {
+    return res.status(403).json({ error: 'Cross-origin request blocked.' });
+  }
   next();
 }
 
 export function setSessionCookie(res: Response, token: string) {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${TOKEN_TTL_SECONDS}`);
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secure}`);
 }
 
 export function clearSessionCookie(res: Response) {

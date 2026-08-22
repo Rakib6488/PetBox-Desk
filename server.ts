@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createServer as createHttpServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import dotenv from 'dotenv';
@@ -6,16 +7,40 @@ import { createServer as createViteServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { PORT } from './src/server/config';
-import { checkDatabaseConnection } from './src/server/db';
+import { checkDatabaseConnection, dbPool } from './src/server/db';
 import { coreRouter } from './src/server/routes/core';
 import { emailRouter } from './src/server/routes/email';
 import { channelsRouter } from './src/server/routes/channels';
+import { requireAuth, requireSameOrigin, verifySessionToken } from './src/server/auth';
+import { Server as SocketIOServer } from 'socket.io';
+import { createWhatsAppRouter } from './server/src/whatsapp/routes';
 
 dotenv.config();
 
 const app = express();
+const httpServer = createHttpServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: process.env.CLIENT_ORIGIN || 'http://localhost:3002',
+    credentials: true,
+  },
+});
+io.of('/whatsapp').use(async (socket, next) => {
+  const cookie = socket.handshake.headers.cookie || '';
+  const token = cookie.split(';').map((item) => item.trim()).find((item) => item.startsWith('idesk_session='))?.slice('idesk_session='.length);
+  const session = verifySessionToken(token);
+  if (!session || !dbPool) return next(new Error('Authentication required.'));
+  try {
+    const result = await dbPool.query('SELECT status FROM users WHERE id = $1', [session.userId]);
+    if (!result.rows[0] || result.rows[0].status === 'disabled') return next(new Error('Authentication required.'));
+    next();
+  } catch {
+    next(new Error('Authentication service unavailable.'));
+  }
+});
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: '15mb' }));
+app.use(requireSameOrigin);
 
 app.get('/api/health', async (_req, res) => {
   const database = await checkDatabaseConnection();
@@ -25,6 +50,9 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api', coreRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/channels', channelsRouter);
+// The standalone WhatsApp package has its own Express type tree; runtime uses
+// the same Express instance, so narrow the cross-package router at this boundary.
+app.use('/api/whatsapp', requireAuth, createWhatsAppRouter(io) as any);
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -39,7 +67,7 @@ async function startServer() {
     app.use(express.static(distPath));
     app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
-  app.listen(PORT, '0.0.0.0', () => console.log(`Petbox Desk server running on http://localhost:${PORT}`));
+  httpServer.listen(PORT, '0.0.0.0', () => console.log(`Petbox Desk server running on http://localhost:${PORT}`));
 }
 
 startServer().catch((error) => {

@@ -15,6 +15,7 @@ import {
   ArrowDownToLine,
   Settings,
   BarChart3,
+  MessageCircle,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -122,8 +123,8 @@ export const Header: React.FC = () => {
                             item.name.charAt(0)
                           )}
                         </div>
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center text-[8px] font-bold border border-white ${item.channelType === 'email' ? 'bg-sky-600' : 'bg-[#1877F2]'}`}>
-                          {item.channelType === 'email' ? '@' : 'f'}
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center text-[8px] font-bold border border-white ${item.channelType === 'email' ? 'bg-sky-600' : item.channelType === 'whatsapp' ? 'bg-emerald-600' : 'bg-[#1877F2]'}`}>
+                          {item.channelType === 'email' ? '@' : item.channelType === 'whatsapp' ? <MessageCircle className="h-2.5 w-2.5" /> : 'f'}
                         </div>
                       </div>
 

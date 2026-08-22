@@ -16,15 +16,18 @@ CREATE TABLE IF NOT EXISTS contacts (
   name TEXT NOT NULL,
   email TEXT,
   phone TEXT,
+  whatsapp_jid TEXT,
   avatar TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS whatsapp_jid TEXT;
 
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   contact_id TEXT REFERENCES contacts(id),
   assigned_agent_id TEXT REFERENCES users(id),
-  channel TEXT NOT NULL CHECK (channel IN ('facebook', 'live_chat', 'email')),
+  channel TEXT NOT NULL CHECK (channel IN ('facebook', 'live_chat', 'email', 'whatsapp')),
   status TEXT NOT NULL DEFAULT 'open',
   subject TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -89,7 +92,7 @@ ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS pages (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  channel TEXT NOT NULL CHECK (channel IN ('facebook', 'live_chat', 'email')),
+  channel TEXT NOT NULL CHECK (channel IN ('facebook', 'live_chat', 'email', 'whatsapp')),
   access_token TEXT,
   webhook_verify_token TEXT,
   status TEXT NOT NULL DEFAULT 'active',
@@ -140,3 +143,10 @@ CREATE TABLE IF NOT EXISTS waiting_queue (
   priority TEXT NOT NULL DEFAULT 'medium',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Backward-compatible channel migration for databases created before WhatsApp support.
+ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_channel_check;
+ALTER TABLE conversations ADD CONSTRAINT conversations_channel_check CHECK (channel IN ('facebook', 'live_chat', 'email', 'whatsapp'));
+ALTER TABLE pages DROP CONSTRAINT IF EXISTS pages_channel_check;
+ALTER TABLE pages ADD CONSTRAINT pages_channel_check CHECK (channel IN ('facebook', 'live_chat', 'email', 'whatsapp'));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_whatsapp_jid ON contacts(whatsapp_jid) WHERE whatsapp_jid IS NOT NULL;
