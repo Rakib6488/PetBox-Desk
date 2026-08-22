@@ -315,6 +315,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setConversations((prev) => [newConv, ...prev]);
     setMessages((prev) => [...prev, firstMsg]);
+    if (item.channelType === 'email' && item.sourceEmailId) {
+      setCustomerEmails((prev) => prev.map((email) => email.id === item.sourceEmailId
+        ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name }
+        : email
+      ));
+    }
     playSoundChime();
     addAuditLog('QUERY_LANDED_INBOX', 'Conversation', convId, `Query landed in agent inbox from ${item.name}`);
     return newConv;
@@ -1201,9 +1207,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return [...uniqueNew, ...prev];
     });
     if (uniqueNewEmails.length) {
-      setWaitingQueue((prev) => {
-        const known = new Set([...prev.map((item) => item.sourceEmailId), ...conversations.map((conversation) => conversation.sourceEmailId)].filter(Boolean));
-        const incoming = uniqueNewEmails.filter((email) => !known.has(email.id)).map((email): WaitingQuery => ({
+      const known = new Set([
+        ...waitingQueue.map((item) => item.sourceEmailId),
+        ...conversations.map((conversation) => conversation.sourceEmailId),
+      ].filter(Boolean));
+      const seenIncoming = new Set<string>();
+      const incoming = uniqueNewEmails
+        .filter((email) => {
+          if (known.has(email.id) || seenIncoming.has(email.id)) return false;
+          seenIncoming.add(email.id);
+          return true;
+        })
+        .map((email): WaitingQuery => ({
           id: `wait_email_${email.id}`,
           name: email.fromName || email.fromEmail || 'Email Customer',
           avatar: email.avatar || '',
@@ -1216,8 +1231,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           subject: email.subject,
           sourceEmailId: email.id,
         }));
-        return incoming.length ? [...prev, ...incoming] : prev;
+
+      let activeOpenCount = conversations.filter(
+        (conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id
+      ).length;
+      const queuedEmails: WaitingQuery[] = [];
+
+      incoming.forEach((query) => {
+        if (!isAgentPaused && activeOpenCount < landingLimit) {
+          landQueryItem(query);
+          activeOpenCount += 1;
+        } else {
+          queuedEmails.push(query);
+        }
       });
+
+      if (queuedEmails.length) {
+        setWaitingQueue((prev) => [...prev, ...queuedEmails]);
+      }
     }
     addAuditLog('SYNC_IMAP_EMAILS', 'CustomerEmail', 'imap_sync', `Synced emails from live IMAP server`);
   };

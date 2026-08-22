@@ -16,7 +16,6 @@ import {
   Settings,
   BarChart3,
 } from 'lucide-react';
-import { CustomerEmailModal } from '../email/CustomerEmailModal';
 
 export const Header: React.FC = () => {
   const {
@@ -34,7 +33,6 @@ export const Header: React.FC = () => {
 
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [waitingQueueOpen, setWaitingQueueOpen] = useState(false);
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // Timer for status duration
@@ -123,8 +121,8 @@ export const Header: React.FC = () => {
                             item.name.charAt(0)
                           )}
                         </div>
-                        <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#1877F2] text-white flex items-center justify-center text-[8px] font-bold border border-white">
-                          f
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full text-white flex items-center justify-center text-[8px] font-bold border border-white ${item.channelType === 'email' ? 'bg-sky-600' : 'bg-[#1877F2]'}`}>
+                          {item.channelType === 'email' ? '@' : 'f'}
                         </div>
                       </div>
 
@@ -173,9 +171,9 @@ export const Header: React.FC = () => {
 
           {/* Pill 3: customer support email mailbox */}
           <button
-            onClick={() => setEmailModalOpen(true)}
+            onClick={() => navigateTo('/agent/inbox')}
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer relative"
-            title={`Petbox Desk Support Mailbox (${customerEmails.length} tickets)`}
+            title={`Email queries in inbox (${customerEmails.length} tickets)`}
           >
             <Mail className="w-3.5 h-3.5 text-slate-500" />
             <span className="text-xs font-semibold text-slate-700">{customerEmails.length}</span>
@@ -311,11 +309,6 @@ export const Header: React.FC = () => {
         </div>
       </div>
 
-      {/* Customer Email Mailbox Modal */}
-      <CustomerEmailModal
-        isOpen={emailModalOpen}
-        onClose={() => setEmailModalOpen(false)}
-      />
     </header>
   );
 };
