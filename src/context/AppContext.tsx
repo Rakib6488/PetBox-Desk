@@ -19,19 +19,6 @@ import {
   CustomerEmail,
   ConversationSummary,
 } from '../types';
-import {
-  INITIAL_USERS,
-  INITIAL_PAGES,
-  INITIAL_TAGS,
-  INITIAL_CONTACTS,
-  INITIAL_MESSAGES,
-  INITIAL_CONVERSATIONS,
-  INITIAL_WAITING_QUEUE,
-  INITIAL_CUSTOMER_EMAILS,
-  INITIAL_QUICK_RESPONSES,
-  INITIAL_SLA_RULES,
-  INITIAL_AUDIT_LOGS,
-} from '../data/initialData';
 import { authApi } from '../features/auth/authApi';
 import { inboxApi } from '../features/inbox/inboxApi';
 import { emailApi } from '../features/email/emailApi';
@@ -72,33 +59,9 @@ function createConversationSummary(conversation: Conversation, customerMessages:
   };
 }
 
-const LEGACY_STORAGE_KEYS: Record<string, string> = {
-  users: 'users', pages: 'pages', tags: 'tags', qr: 'quickResponses', convs: 'conversations',
-  msgs: 'messages', sla: 'slaRules', audit: 'auditLogs', waiting_queue: 'waitingQueue', customer_emails: 'customerEmails',
+const EMPTY_USER: User = {
+  id: '', name: '', email: '', role: 'agent', status: 'offline', statusStartedAt: '', avatar: '', createdAt: '',
 };
-const LEGACY_STORAGE_PREFIX = 'petbox_desk_v1_';
-
-function readLegacyWorkspaceState(): Record<string, unknown> | null {
-  if (typeof localStorage === 'undefined') return null;
-  const state: Record<string, unknown> = {};
-  let found = false;
-  Object.entries(LEGACY_STORAGE_KEYS).forEach(([storageKey, stateKey]) => {
-    const raw = localStorage.getItem(`${LEGACY_STORAGE_PREFIX}${storageKey}`);
-    if (!raw) return;
-    try {
-      state[stateKey] = JSON.parse(raw);
-      found = true;
-    } catch {
-      localStorage.removeItem(`${LEGACY_STORAGE_PREFIX}${storageKey}`);
-    }
-  });
-  return found ? state : null;
-}
-
-function clearLegacyWorkspaceState() {
-  if (typeof localStorage === 'undefined') return;
-  Object.keys(LEGACY_STORAGE_KEYS).forEach((key) => localStorage.removeItem(`${LEGACY_STORAGE_PREFIX}${key}`));
-}
 
 interface AppContextType {
   // Current user & Auth
@@ -213,32 +176,31 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // PostgreSQL is the only persistence layer. Initial data is used only until the
-  // authenticated workspace state has been loaded from the server.
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+  // Production data comes only from the authenticated PostgreSQL workspace.
+  const [users, setUsers] = useState<User[]>([]);
 
-  const [currentUser, setCurrentUser] = useState<User>(() => users[0]);
+  const [currentUser, setCurrentUser] = useState<User>(EMPTY_USER);
 
-  const [pages, setPages] = useState<PageChannel[]>(INITIAL_PAGES);
+  const [pages, setPages] = useState<PageChannel[]>([]);
 
-  const [tags, setTags] = useState<Tag[]>(INITIAL_TAGS);
+  const [tags, setTags] = useState<Tag[]>([]);
 
-  const [quickResponses, setQuickResponses] = useState<QuickResponse[]>(INITIAL_QUICK_RESPONSES);
+  const [quickResponses, setQuickResponses] = useState<QuickResponse[]>([]);
 
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
 
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+  const [messages, setMessages] = useState<Message[]>([]);
 
-  const [slaRules, setSlaRules] = useState<SLARule[]>(INITIAL_SLA_RULES);
+  const [slaRules, setSlaRules] = useState<SLARule[]>([]);
 
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
-  const [waitingQueue, setWaitingQueue] = useState<WaitingQuery[]>(INITIAL_WAITING_QUEUE);
+  const [waitingQueue, setWaitingQueue] = useState<WaitingQuery[]>([]);
   const [landingLimit, setLandingLimitState] = useState(2);
 
-  const [customerEmails, setCustomerEmails] = useState<CustomerEmail[]>(INITIAL_CUSTOMER_EMAILS);
+  const [customerEmails, setCustomerEmails] = useState<CustomerEmail[]>([]);
 
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>('conv_milon');
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [currentRoute, setCurrentRoute] = useState<AppRoute>('/agent/inbox');
   const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>('overview');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -247,7 +209,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [isAgentPaused, setIsAgentPaused] = useState(false);
+  // Agents start paused after login. Incoming queries may land only after
+  // the agent explicitly presses Resume.
+  const [isAgentPaused, setIsAgentPaused] = useState(true);
   const poolIndexRef = React.useRef(0);
   const dbHydratedRef = React.useRef(false);
   const authCheckActiveRef = React.useRef(true);
@@ -325,7 +289,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       assignedAgent: currentUser,
       status: 'open',
       sentiment: 'neutral',
-      tags: [tags[0] || INITIAL_TAGS[0]],
+      tags: tags.length ? [tags[0]] : [],
       lastMessageAt: new Date().toISOString(),
       lastMessageText: item.message,
       unreadCount: 1,
@@ -356,6 +320,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Land next waiting query from queue if available
   const landNextQueryFromQueue = () => {
+    if (isAgentPaused) return;
     const activeOpenCount = conversations.filter(
       (conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id
     ).length;
@@ -531,14 +496,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     dbHydratedRef.current = false;
     inboxApi.loadState()
       .then(async (saved) => {
-        const databaseState = saved?.state || (await inboxApi.loadBootstrap().catch(() => null));
-        const legacyState = readLegacyWorkspaceState();
-        const data = legacyState ? { ...(databaseState || {}), ...legacyState } : databaseState;
-        if (legacyState) {
-          await inboxApi.saveState(data);
-          clearLegacyWorkspaceState();
-          console.info('Migrated legacy Agent Portal data from browser storage to PostgreSQL.');
-        }
+        const data = saved?.state;
         if (data) {
           if (Array.isArray(data.users)) setUsers(data.users);
           if (Array.isArray(data.pages)) setPages(data.pages);
@@ -660,7 +618,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     setMessages((prev) => [...prev, newMessage]);
-    void inboxApi.sendMessage(selectedConversationId, content, messageType).catch(() => undefined);
+    void inboxApi.sendMessage(selectedConversationId, content, messageType, selectedConversation?.channelType || 'live_chat').catch(() => undefined);
 
     // Update conversation metadata
     setConversations((prev) =>
@@ -1171,7 +1129,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       assignedAgent: currentUser,
       status: 'open',
       sentiment: email.priority === 'urgent' ? 'negative' : 'neutral',
-      tags: [tags[0] || INITIAL_TAGS[0]],
+      tags: tags.length ? [tags[0]] : [],
       lastMessageAt: new Date().toISOString(),
       lastMessageText: `[Email: ${email.subject}] ${email.preview}`,
       unreadCount: 0,
@@ -1251,18 +1209,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Reset all data to default
   const resetAllData = () => {
-    setUsers(INITIAL_USERS);
-    setCurrentUser(INITIAL_USERS[0]);
-    setPages(INITIAL_PAGES);
-    setTags(INITIAL_TAGS);
-    setQuickResponses(INITIAL_QUICK_RESPONSES);
-    setConversations(INITIAL_CONVERSATIONS);
-    setWaitingQueue(INITIAL_WAITING_QUEUE);
-    setCustomerEmails(INITIAL_CUSTOMER_EMAILS);
-    setMessages(INITIAL_MESSAGES);
-    setSlaRules(INITIAL_SLA_RULES);
-    setAuditLogs(INITIAL_AUDIT_LOGS);
-    setSelectedConversationId('conv_milon');
+    setUsers([]);
+    setCurrentUser(EMPTY_USER);
+    setPages([]);
+    setTags([]);
+    setQuickResponses([]);
+    setConversations([]);
+    setWaitingQueue([]);
+    setCustomerEmails([]);
+    setMessages([]);
+    setSlaRules([]);
+    setAuditLogs([]);
+    setSelectedConversationId(null);
   };
 
   return (
