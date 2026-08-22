@@ -28,6 +28,7 @@ export const Header: React.FC = () => {
     navigateTo,
     conversations,
     waitingQueue,
+    customerEmails,
     landingLimit,
     landNextQueryFromQueue,
     logout,
@@ -38,7 +39,21 @@ export const Header: React.FC = () => {
   const [waitingQueueOpen, setWaitingQueueOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const waitingCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => waitingQueue.filter((item) => item.channelType === channel).length;
+  const realMessageCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => {
+    const queued = waitingQueue.filter((item) => item.channelType === channel);
+    const unreadLanded = conversations
+      .filter((conversation) => conversation.channelType === channel)
+      .reduce((total, conversation) => total + Math.max(0, conversation.unreadCount || 0), 0);
+
+    if (channel !== 'email') return queued.length + unreadLanded;
+
+    const trackedEmailIds = new Set([
+      ...queued.map((item) => item.sourceEmailId).filter(Boolean),
+      ...conversations.map((conversation) => conversation.sourceEmailId).filter(Boolean),
+    ]);
+    const unreadMailbox = customerEmails.filter((email) => !email.isRead && !trackedEmailIds.has(email.id)).length;
+    return queued.length + unreadLanded + unreadMailbox;
+  };
 
   // Timer for status duration
   useEffect(() => {
@@ -87,10 +102,10 @@ export const Header: React.FC = () => {
           <button
             onClick={() => setWaitingQueueOpen(!waitingQueueOpen)}
             className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-emerald-500/80 bg-emerald-50/40 text-emerald-700 hover:bg-emerald-50 text-xs font-semibold transition-all shadow-2xs cursor-pointer ${currentUser.role === 'admin' ? 'hidden' : ''}`}
-            title={`Live Chat waiting messages (${waitingCount('live_chat')})`}
+            title={`Live Chat real messages (${realMessageCount('live_chat')})`}
           >
             <MessageSquare className="w-3.5 h-3.5 text-emerald-600 fill-emerald-100" />
-            <span className="text-xs font-bold text-emerald-800">{waitingCount('live_chat')}</span>
+            <span className="text-xs font-bold text-emerald-800">{realMessageCount('live_chat')}</span>
           </button>
 
           {/* Customer Waiting Queue Popover / Dropdown */}
@@ -175,30 +190,27 @@ export const Header: React.FC = () => {
 
           {/* Pill 2: [💬 0] in light border */}
           <button
-            onClick={() => setWaitingQueueOpen(!waitingQueueOpen)}
             className={`flex items-center gap-1 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 text-xs font-semibold transition-all shadow-2xs ${currentUser.role === 'admin' ? 'hidden' : ''}`}
-            title={`Facebook waiting messages (${waitingCount('facebook')})`}
+            title={`Facebook real messages (${realMessageCount('facebook')})`}
           >
             <Facebook className="w-3.5 h-3.5 text-[#1877F2]" />
-            <span className="text-xs font-semibold text-slate-700">{waitingCount('facebook')}</span>
+            <span className="text-xs font-semibold text-slate-700">{realMessageCount('facebook')}</span>
           </button>
 
           {/* Pill 3: customer support email mailbox */}
           <button
-            onClick={() => setWaitingQueueOpen(!waitingQueueOpen)}
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer relative"
-            title={`Email waiting messages (${waitingCount('email')})`}
+            title={`Email real messages (${realMessageCount('email')})`}
           >
             <Mail className="w-3.5 h-3.5 text-slate-500" />
-            <span className="text-xs font-semibold text-slate-700">{waitingCount('email')}</span>
+            <span className="text-xs font-semibold text-slate-700">{realMessageCount('email')}</span>
           </button>
           <button
-            onClick={() => setWaitingQueueOpen(!waitingQueueOpen)}
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer"
-            title={`WhatsApp waiting messages (${waitingCount('whatsapp')})`}
+            title={`WhatsApp real messages (${realMessageCount('whatsapp')})`}
           >
             <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="text-xs font-semibold text-slate-700">{waitingCount('whatsapp')}</span>
+            <span className="text-xs font-semibold text-slate-700">{realMessageCount('whatsapp')}</span>
           </button>
         </div>
       </div>
@@ -287,42 +299,6 @@ export const Header: React.FC = () => {
                     {Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s)
                   </span>
                 </div>
-              </div>
-
-              {/* Status Selector */}
-              <div className={`py-1 border-b border-slate-100 ${currentUser.role === 'admin' ? 'hidden' : ''}`}>
-                <div className="px-3 py-1 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                  Agent Availability
-                </div>
-                {(['online', 'away', 'break', 'offline'] as AgentStatus[]).map(
-                  (st) => (
-                    <button
-                      key={st}
-                      onClick={() => {
-                        updateUserStatus(currentUser.id, st);
-                        setProfileDropdownOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-slate-50 ${
-                        currentUser.status === st
-                          ? 'font-bold text-teal-700 bg-teal-50/50'
-                          : 'text-slate-600'
-                      }`}
-                    >
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          st === 'online'
-                            ? 'bg-emerald-500'
-                            : st === 'away'
-                            ? 'bg-amber-500'
-                            : st === 'break'
-                            ? 'bg-blue-500'
-                            : 'bg-slate-400'
-                        }`}
-                      />
-                      <span className="capitalize">{st.replace('_', ' ')}</span>
-                    </button>
-                  )
-                )}
               </div>
 
               {/* Admin Dashboard shortcut if admin */}

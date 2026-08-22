@@ -6,15 +6,15 @@ import { dbPool } from './db';
 dotenv.config();
 
 const COOKIE_NAME = 'idesk_session';
-const TOKEN_TTL_SECONDS = 8 * 60 * 60;
+const DEFAULT_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 const secret = process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('SESSION_SECRET is required in production.'); })() : 'local-development-session-secret');
 
 function sign(value: string) {
   return crypto.createHmac('sha256', secret).update(value).digest('hex');
 }
 
-export function createSessionToken(userId: string, role: string) {
-  const payload = Buffer.from(JSON.stringify({ userId, role, exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS })).toString('base64url');
+export function createSessionToken(userId: string, role: string, ttlSeconds = DEFAULT_TOKEN_TTL_SECONDS) {
+  const payload = Buffer.from(JSON.stringify({ userId, role, exp: Math.floor(Date.now() / 1000) + ttlSeconds })).toString('base64url');
   return `${payload}.${sign(payload)}`;
 }
 
@@ -74,9 +74,9 @@ export function requireSameOrigin(req: Request, res: Response, next: NextFunctio
   next();
 }
 
-export function setSessionCookie(res: Response, token: string) {
+export function setSessionCookie(res: Response, token: string, maxAgeSeconds = DEFAULT_TOKEN_TTL_SECONDS) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secure}`);
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${secure}`);
 }
 
 export function clearSessionCookie(res: Response) {

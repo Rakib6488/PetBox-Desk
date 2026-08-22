@@ -181,10 +181,18 @@ export const ConversationList: React.FC = () => {
                     {!conv.firstResponseAt && <span className="text-[11px] font-mono font-semibold text-[#E11D48] shrink-0 ml-1">{getSlaLabel(conv)}</span>}
                   </div>
 
-                  {/* Last message with paperclip icon matching screenshot */}
-                  <div className="flex items-center gap-1 text-[11px] text-slate-600 mt-0.5 truncate">
-                    <Paperclip className="w-3 h-3 text-slate-400 shrink-0" />
-                    <span className="truncate">{conv.lastMessageText}</span>
+                  {/* Subject and latest message preview */}
+                  {conv.channelType === 'email' && conv.subject && (
+                    <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700" title={conv.subject}>
+                      {conv.subject}
+                    </p>
+                  )}
+                  <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-600">
+                    <Paperclip className="h-3 w-3 shrink-0 text-slate-400" />
+                    <span className="shrink-0 text-slate-400">Preview:</span>
+                    <span className="truncate" title={conv.lastMessageText || 'No message preview available'}>
+                      {conv.lastMessageText || 'No message preview available'}
+                    </span>
                   </div>
                 </div>
               </div>

@@ -23,6 +23,7 @@ coreRouter.get('/db/health', async (_req, res) => {
 
 coreRouter.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
+  const rememberMe = Boolean(req.body?.rememberMe);
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
   const attemptKey = `${req.ip}:${String(email).trim().toLowerCase()}`;
   const attempt = loginFailures.get(attemptKey);
@@ -45,7 +46,8 @@ coreRouter.post('/auth/login', async (req, res) => {
     }
     loginFailures.delete(attemptKey);
     const { password_hash: _passwordHash, ...safeUser } = user;
-    setSessionCookie(res, createSessionToken(user.id, user.role));
+    const sessionTtl = rememberMe ? 30 * 24 * 60 * 60 : 8 * 60 * 60;
+    setSessionCookie(res, createSessionToken(user.id, user.role, sessionTtl), sessionTtl);
     res.json({ user: safeUser });
   } catch (error: any) {
     console.error('Login database query failed:', error?.message || error);

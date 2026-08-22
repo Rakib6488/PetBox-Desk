@@ -67,6 +67,8 @@ const PROMOTIONAL_MESSAGE_PATTERN = /(unsubscribe|newsletter|no[-_ ]?reply|norep
 function isPromotionalMessage(content: string, sender = '') {
   const combined = `${sender} ${content}`;
   if (PROMOTIONAL_MESSAGE_PATTERN.test(combined)) return true;
+  if (/(services agreement|privacy policy|terms of (service|use)|view in browser|manage preferences)/i.test(combined)) return true;
+  if (/\b(dazn|linkedin)\b/i.test(combined)) return true;
   return /(sale|discount|coupon|offer|অফার|ছাড়|কুপন)/i.test(content) && /(https?:\/\/|www\.|buy|shop|subscribe|কিনুন|অর্ডার)/i.test(content);
 }
 
@@ -378,37 +380,44 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Toggle Agent Pause / Resume
   const toggleAgentPause = () => {
-    setIsAgentPaused((prev) => {
-      const next = !prev;
-      if (next) setSelectedConversationId(null);
-      addAuditLog(
-        next ? 'AGENT_PAUSED' : 'AGENT_RESUMED',
-        'User',
-        currentUser.id,
-        next ? 'Agent paused incoming queue' : 'Agent resumed incoming queue'
-      );
-      if (!next) {
-        // When switching from Pause to Resume, fill available configured slots.
-        setTimeout(() => {
-          setConversations((currentConvs) => {
-            const activeOpen = currentConvs.filter(
-              (c) => (c.status === 'open' || c.status === 'pending') && c.assignedAgentId === currentUser.id
-            );
-            const slotsAvailable = Math.max(0, landingLimit - activeOpen.length);
-            if (slotsAvailable > 0) {
-              setWaitingQueue((prevQueue) => {
-                if (prevQueue.length === 0) return prevQueue;
-                const toLand = prevQueue.slice(0, slotsAvailable);
-                toLand.forEach((q) => landQueryItem(q));
-                return prevQueue.slice(slotsAvailable);
-              });
-            }
-            return currentConvs;
-          });
-        }, 300);
-      }
-      return next;
-    });
+    const next = !isAgentPaused;
+    setIsAgentPaused(next);
+    if (next) setSelectedConversationId(null);
+
+    const nextStatus: AgentStatus = next ? 'offline' : 'online';
+    if (currentUser.status !== nextStatus) {
+      const updatedUser = { ...currentUser, status: nextStatus, statusStartedAt: new Date().toISOString() };
+      setCurrentUser(updatedUser);
+      setUsers((prev) => prev.map((user) => (user.id === currentUser.id ? updatedUser : user)));
+      addAuditLog('AGENT_STATUS_CHANGE', 'User', currentUser.id, `Status updated to ${nextStatus}`);
+    }
+    addAuditLog(
+      next ? 'AGENT_PAUSED' : 'AGENT_RESUMED',
+      'User',
+      currentUser.id,
+      next ? 'Agent paused incoming queue' : 'Agent resumed incoming queue'
+    );
+
+    if (!next) {
+      // When switching from Pause to Resume, fill available configured slots.
+      setTimeout(() => {
+        setConversations((currentConvs) => {
+          const activeOpen = currentConvs.filter(
+            (c) => (c.status === 'open' || c.status === 'pending') && c.assignedAgentId === currentUser.id
+          );
+          const slotsAvailable = Math.max(0, landingLimit - activeOpen.length);
+          if (slotsAvailable > 0) {
+            setWaitingQueue((prevQueue) => {
+              if (prevQueue.length === 0) return prevQueue;
+              const toLand = prevQueue.slice(0, slotsAvailable);
+              toLand.forEach((q) => landQueryItem(q));
+              return prevQueue.slice(slotsAvailable);
+            });
+          }
+          return currentConvs;
+        });
+      }, 300);
+    }
   };
 
   // Function to navigate cleanly between hierarchy routes
@@ -513,26 +522,49 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       .then(async (saved) => {
         const data = saved?.state;
         if (data) {
+          const recentCutoff = Date.now() - 2 * 24 * 60 * 60 * 1000;
+          const isRecent = (value: string | undefined) => {
+            const timestamp = Date.parse(String(value || ''));
+            return Number.isFinite(timestamp) && timestamp >= recentCutoff;
+          };
           if (Array.isArray(data.users)) setUsers(data.users);
           if (Array.isArray(data.pages)) setPages(data.pages);
           if (Array.isArray(data.tags)) setTags(data.tags);
           if (Array.isArray(data.quickResponses)) setQuickResponses(data.quickResponses);
           if (Array.isArray(data.conversations)) {
-            const sourceMessages = Array.isArray(data.messages) ? data.messages as Message[] : [];
-            setConversations(data.conversations.map((conversation: Conversation) => {
-              if (conversation.summary) return conversation;
-              const customerMessages = sourceMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
-              return customerMessages.length ? { ...conversation, summary: createConversationSummary(conversation, customerMessages) } : conversation;
-            }));
+            const allMessages = Array.isArray(data.messages) ? data.messages as Message[] : [];
+            const recentMessages = allMessages.filter((message) => isRecent(message.createdAt));
+            const cleanConversations = data.conversations.filter((conversation: Conversation) => {
+              const customerMessages = allMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
+              const latestCustomerAt = customerMessages.map((message) => message.createdAt).sort().at(-1) || conversation.lastMessageAt;
+              const isOldPromotionalEmail = conversation.channelType === 'email'
+                && isPromotionalMessage(`${conversation.subject || ''} ${conversation.lastMessageText || ''}`, conversation.contact?.email || conversation.contact?.name || '');
+              return isRecent(latestCustomerAt) && !isOldPromotionalEmail;
+            });
+            const allowedConversationIds = new Set(cleanConversations.map((conversation: Conversation) => conversation.id));
+            setConversations(cleanConversations
+              .map((conversation: Conversation) => {
+                const customerMessages = recentMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
+                return customerMessages.length ? { ...conversation, summary: createConversationSummary(conversation, customerMessages) } : conversation;
+              })
+              .sort((a: Conversation, b: Conversation) => Date.parse(b.lastMessageAt) - Date.parse(a.lastMessageAt)));
+            if (Array.isArray(data.messages)) {
+              setMessages(recentMessages
+                .filter((message) => allowedConversationIds.has(message.conversationId))
+                .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)));
+            }
+          } else if (Array.isArray(data.messages)) {
+            setMessages((data.messages as Message[]).filter((message) => isRecent(message.createdAt)));
           }
-          if (Array.isArray(data.messages)) setMessages(data.messages);
           if (Array.isArray(data.slaRules)) setSlaRules(data.slaRules);
           if (Array.isArray(data.auditLogs)) setAuditLogs(data.auditLogs);
           if (Array.isArray(data.waitingQueue)) {
-            const today = new Date().toISOString().slice(0, 10);
-            setWaitingQueue(data.waitingQueue.filter((item: WaitingQuery) => String(item.createdAt || '').slice(0, 10) === today));
+            setWaitingQueue(data.waitingQueue.filter((item: WaitingQuery) => (
+              isRecent(item.createdAt)
+              && !(item.channelType === 'email' && isPromotionalMessage(`${item.subject || ''} ${item.message || ''}`, item.email || item.name))
+            )).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
           }
-          if (Array.isArray(data.customerEmails)) setCustomerEmails(data.customerEmails.filter((email: CustomerEmail) => !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail)));
+          if (Array.isArray(data.customerEmails)) setCustomerEmails(data.customerEmails.filter((email: CustomerEmail) => isRecent(email.receivedAt) && !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail)));
           if (data.emailSettings && typeof data.emailSettings === 'object') setEmailSettings((prev) => ({ ...prev, ...data.emailSettings }));
           if (typeof data.landingLimit === 'number') setLandingLimit(data.landingLimit);
         }
@@ -622,6 +654,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     setCurrentUser(updatedUser);
     setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
+    setIsAgentPaused(status !== 'online');
+    if (status !== 'online') setSelectedConversationId(null);
     addAuditLog('AGENT_STATUS_CHANGE', 'User', currentUser.id, `Status updated to ${status}`);
   };
 
@@ -1277,7 +1311,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const mergeFetchedEmails = (newEmails: CustomerEmail[]) => {
-    const realEmails = newEmails.filter((email) => !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail));
+    const recentCutoff = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const realEmails = newEmails.filter((email) => {
+      const receivedAt = Date.parse(String(email.receivedAt || ''));
+      return Number.isFinite(receivedAt)
+        && receivedAt >= recentCutoff
+        && !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail);
+    });
     const uniqueNewEmails = realEmails.filter((email) => !customerEmails.some((existing) => existing.id === email.id));
     setCustomerEmails((prev) => {
       const existingIds = new Set(prev.map((e) => e.id));
@@ -1344,16 +1384,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // 401 request before a session exists.
     if (!isLoggedIn || !emailSettings.enabled || !emailSettings.autoSync) return;
 
-    emailApi.fetch(25)
-      .then((data) => {
-        if (data && data.success && Array.isArray(data.emails) && data.emails.length > 0) {
-          mergeFetchedEmails(data.emails);
-        }
-      })
-      .catch((err) => {
-        // Fallback silently if offline or initial boot
-        console.log('Background IMAP sync initialized:', err.message);
-      });
+    const syncMailbox = () => {
+      void emailApi.fetch(25)
+        .then((data) => {
+          if (data && data.success && Array.isArray(data.emails) && data.emails.length > 0) {
+            mergeFetchedEmails(data.emails);
+          }
+        })
+        .catch((err) => {
+          console.log('Background IMAP sync failed:', err.message);
+        });
+    };
+    syncMailbox();
+    const timer = setInterval(syncMailbox, 60_000);
+    return () => clearInterval(timer);
   }, [isLoggedIn, emailSettings.enabled, emailSettings.autoSync]);
 
   // Receive real Facebook webhook messages through the authenticated inbox socket.

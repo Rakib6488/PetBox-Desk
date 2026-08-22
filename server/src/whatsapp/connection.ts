@@ -46,7 +46,28 @@ function getDisconnectCode(error: unknown): number | undefined {
 }
 
 function getText(message: WAMessage): string | null {
-  return message.message?.conversation || message.message?.extendedTextMessage?.text || null;
+  let content = message.message as any;
+  // WhatsApp wraps normal messages in these containers when disappearing,
+  // view-once, or edited-message mode is enabled.
+  for (let depth = 0; depth < 4; depth += 1) {
+    const wrapped = content?.ephemeralMessage?.message
+      || content?.viewOnceMessage?.message
+      || content?.viewOnceMessageV2?.message
+      || content?.viewOnceMessageV2Extension?.message
+      || content?.documentWithCaptionMessage?.message
+      || content?.editedMessage?.message;
+    if (!wrapped) break;
+    content = wrapped;
+  }
+
+  return content?.conversation
+    || content?.extendedTextMessage?.text
+    || content?.imageMessage?.caption
+    || content?.videoMessage?.caption
+    || content?.documentMessage?.caption
+    || content?.buttonsResponseMessage?.selectedDisplayText
+    || content?.listResponseMessage?.title
+    || null;
 }
 
 async function connect(io: SocketIOServer): Promise<void> {
