@@ -285,6 +285,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       channelType: item.channelType || 'facebook',
       contactId: newContact.id,
       contact: newContact,
+      subject: item.subject,
+      sourceEmailId: item.sourceEmailId,
       assignedAgentId: currentUser.id,
       assignedAgent: currentUser,
       status: 'open',
@@ -618,7 +620,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     setMessages((prev) => [...prev, newMessage]);
-    void inboxApi.sendMessage(selectedConversationId, content, messageType, selectedConversation?.channelType || 'live_chat').catch(() => undefined);
+    const activeConversation = selectedConversation;
+    void inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'live_chat').catch(() => undefined);
+    if (activeConversation?.channelType === 'email' && activeConversation.contact.email) {
+      void emailApi.send({
+        to: activeConversation.contact.email,
+        subject: activeConversation.subject?.startsWith('Re:') ? activeConversation.subject : `Re: ${activeConversation.subject || 'Petbox Desk Support'}`,
+        body: content,
+      }).then(() => {
+        if (activeConversation.sourceEmailId) {
+          setCustomerEmails((prev) => prev.map((email) => email.id === activeConversation.sourceEmailId ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name } : email));
+        }
+      }).catch((error) => console.error('Failed to send email reply via SMTP', error));
+    }
 
     // Update conversation metadata
     setConversations((prev) =>
@@ -1176,15 +1190,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const mergeFetchedEmails = (newEmails: CustomerEmail[]) => {
+    const uniqueNewEmails = newEmails.filter((email) => !customerEmails.some((existing) => existing.id === email.id));
     setCustomerEmails((prev) => {
       const existingIds = new Set(prev.map((e) => e.id));
       const existingSubjects = new Set(prev.map((e) => `${e.fromEmail}_${e.subject}_${e.receivedAt}`));
-      const uniqueNew = newEmails.filter(
+      const uniqueNew = uniqueNewEmails.filter(
         (e) => !existingIds.has(e.id) && !existingSubjects.has(`${e.fromEmail}_${e.subject}_${e.receivedAt}`)
       );
       if (uniqueNew.length === 0) return prev;
       return [...uniqueNew, ...prev];
     });
+    if (uniqueNewEmails.length) {
+      setWaitingQueue((prev) => {
+        const known = new Set([...prev.map((item) => item.sourceEmailId), ...conversations.map((conversation) => conversation.sourceEmailId)].filter(Boolean));
+        const incoming = uniqueNewEmails.filter((email) => !known.has(email.id)).map((email): WaitingQuery => ({
+          id: `wait_email_${email.id}`,
+          name: email.fromName || email.fromEmail || 'Email Customer',
+          avatar: email.avatar || '',
+          email: email.fromEmail,
+          message: email.body || email.preview || email.subject,
+          channelType: 'email',
+          pageName: 'Email Support',
+          createdAt: email.receivedAt,
+          priority: email.priority || 'medium',
+          subject: email.subject,
+          sourceEmailId: email.id,
+        }));
+        return incoming.length ? [...prev, ...incoming] : prev;
+      });
+    }
     addAuditLog('SYNC_IMAP_EMAILS', 'CustomerEmail', 'imap_sync', `Synced emails from live IMAP server`);
   };
 

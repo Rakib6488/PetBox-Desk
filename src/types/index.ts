@@ -124,6 +124,8 @@ export interface WaitingQuery {
   pageName: string;
   createdAt: string;
   priority?: 'urgent' | 'high' | 'medium' | 'low';
+  subject?: string;
+  sourceEmailId?: string;
 }
 
 export interface CustomerEmail {
@@ -165,6 +167,8 @@ export interface Conversation {
   channelType: ChannelType;
   contactId: string;
   contact: Contact;
+  subject?: string;
+  sourceEmailId?: string;
   assignedAgentId?: string;
   assignedAgent?: User;
   status: ConversationStatus;
