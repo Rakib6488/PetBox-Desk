@@ -23,6 +23,11 @@ export const RightPanel: React.FC = () => {
     addQuickResponse,
     sendMessage,
     currentUser,
+    users,
+    conversations,
+    customerEmails,
+    assignConversation,
+    navigateTo,
   } = useApp();
 
   const [activeQrTab, setActiveQrTab] = useState<QuickResponseCategory>('mine');
@@ -33,6 +38,7 @@ export const RightPanel: React.FC = () => {
   const [qrTitle, setQrTitle] = useState('');
   const [qrContent, setQrContent] = useState('');
   const [qrCategory, setQrCategory] = useState<QuickResponseCategory>('mine');
+  const [assignOpen, setAssignOpen] = useState(false);
 
   if (!selectedConversation) {
     return (
@@ -44,10 +50,10 @@ export const RightPanel: React.FC = () => {
 
   const contact = selectedConversation.contact;
   const customerMessages = conversationMessages.filter((message) => message.senderType === 'contact');
-  const summaryText = selectedConversation.summary?.text || (customerMessages.length
-    ? `${contact.name} contacted support about: ${customerMessages.at(-1)?.content.slice(0, 180)}`
-    : 'No customer message summary is available yet.');
-
+  const historyCount = conversations.filter((conversation) => conversation.contactId === selectedConversation.contactId).length;
+  const mailCount = customerEmails.filter((email) => email.fromEmail === contact.email).length;
+  const notesCount = selectedConversation.notes?.length || 0;
+  const supportUsers = users.filter((user) => user.role === 'agent' || user.role === 'supervisor');
   const copyConvId = () => {
     navigator.clipboard.writeText(selectedConversation.convUid);
     setCopiedId(true);
@@ -137,47 +143,55 @@ export const RightPanel: React.FC = () => {
 
         <div className="rounded-lg border border-teal-100 bg-teal-50/60 p-2.5">
           <div className="mb-2 flex items-center justify-between gap-2"><span className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Customer Summary</span><span className="text-[10px] font-semibold text-teal-600">{selectedConversation.summary?.customerMessageCount || customerMessages.length} messages</span></div>
-          <div className="mb-2 flex justify-end"><span className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">{selectedConversation.status === 'closed' ? 'Complete Summary' : 'Incomplete Summary'}</span></div>
-          <p className="text-[11px] leading-4 text-slate-700">{summaryText}</p>
+          <div className="mb-2 flex justify-end"><button type="button" onClick={() => navigateTo('/bi/summary')} className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-700 hover:border-violet-300 hover:bg-violet-50">Complete Summary</button></div>
+          <p className="text-[11px] leading-4 text-slate-700">Other</p>
         </div>
 
         {/* 4 Counter Buttons matching screenshot: [💬 0] [✉ 1] [✏ 0] [👤+] */}
         <div className="grid grid-cols-4 gap-1 pt-0.5">
           <button
+            onClick={() => setActiveSideTab('info')}
             className="py-1 px-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-1 text-[11px]"
             title="History"
           >
             <MessageSquare className="w-3 h-3 text-slate-400" />
-            <span>0</span>
+            <span>{historyCount}</span>
           </button>
 
           <button
+            onClick={() => setActiveSideTab('info')}
             className="py-1 px-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-1 text-[11px]"
             title="Mail"
           >
             <Mail className="w-3 h-3 text-slate-400" />
-            <span>1</span>
+            <span>{mailCount}</span>
           </button>
 
           <button
+            onClick={() => setActiveSideTab('notes')}
             className="py-1 px-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-1 text-[11px]"
             title="Notes"
           >
             <Edit3 className="w-3 h-3 text-slate-400" />
-            <span>0</span>
+            <span>{notesCount}</span>
           </button>
 
+          <div className="relative">
           <button
+            onClick={() => setAssignOpen((open) => !open)}
             className="py-1 px-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-1 text-[11px]"
             title="Assign"
           >
             <UserPlus className="w-3 h-3 text-slate-400" />
           </button>
+          {assignOpen && <div className="absolute right-0 top-8 z-30 w-48 rounded-lg border border-slate-200 bg-white p-1 shadow-xl">{supportUsers.map((user) => <button key={user.id} onClick={() => { assignConversation(selectedConversation.id, user.id); setAssignOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-[11px] text-slate-700 hover:bg-slate-50">{user.name}</button>)}</div>}
+          </div>
         </div>
       </div>
 
       {/* Quick Responses Section matching screenshot */}
       <div className="p-3 flex flex-col gap-2 flex-1 overflow-hidden">
+        {activeSideTab === 'notes' && <div className="rounded-lg border border-amber-100 bg-amber-50 p-2 text-[11px] text-amber-900"><p className="mb-1 font-bold">Conversation notes</p>{selectedConversation.notes?.length ? selectedConversation.notes.map((note, index) => <p key={`${note}-${index}`} className="border-t border-amber-100 py-1">{note}</p>) : <p>No notes added.</p>}</div>}
         {/* Title */}
         <span className="font-bold text-slate-900 text-xs">Quick responses</span>
 

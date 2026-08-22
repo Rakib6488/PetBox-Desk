@@ -41,13 +41,14 @@ export const ChatWindow: React.FC = () => {
   const [selectedSentiment, setSelectedSentiment] = useState<SentimentType>('negative');
   const [activeTag, setActiveTag] = useState<Tag | null>(null);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
-  const [languageMode, setLanguageMode] = useState<'EN' | 'BN'>('EN');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
 
   // Sync conversation tags & sentiment
   useEffect(() => {
@@ -109,6 +110,29 @@ export const ChatWindow: React.FC = () => {
     }, 1500);
   };
 
+  const handleRealVoiceRecord = () => {
+    if (voiceRecorderRef.current) {
+      voiceRecorderRef.current.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return;
+    void navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        sendMessage('Voice message', 'audio', [{ url: URL.createObjectURL(blob), name: 'voice-message.webm', size: `${Math.max(1, Math.round(blob.size / 1024))} KB`, type: blob.type }]);
+        stream.getTracks().forEach((track) => track.stop());
+        voiceRecorderRef.current = null;
+        setIsRecordingVoice(false);
+      };
+      recorder.start();
+      voiceRecorderRef.current = recorder;
+      setIsRecordingVoice(true);
+    }).catch(() => setIsRecordingVoice(false));
+  };
+
   const emojis = ['👍', '🙏', '😊', '❤️', '✅', '⚠️', '🎉', '📌', '🤝', '🙌'];
   const channelMeta = selectedConversation.channelType === 'email'
     ? { label: 'Email', icon: <Mail className="w-3 h-3" />, color: 'bg-sky-600' }
@@ -137,7 +161,7 @@ export const ChatWindow: React.FC = () => {
           <button
             onClick={() => setInputText('')}
             className="w-6 h-6 rounded-full border border-slate-200 hover:bg-slate-100 text-slate-500 flex items-center justify-center transition-colors"
-            title="Refresh Conversation"
+            title="Clear message draft"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
@@ -190,7 +214,7 @@ export const ChatWindow: React.FC = () => {
             >
               {/* Avatar circle (M for customer, Agent avatar for agent) */}
               <div className="w-6 h-6 rounded-full bg-slate-300 border border-slate-300 text-slate-700 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
-                {isAgent ? 'A' : 'M'}
+                {isAgent ? (currentUser.avatar ? <img src={currentUser.avatar} alt={currentUser.name} className="h-full w-full rounded-full object-cover" /> : currentUser.name.charAt(0).toUpperCase()) : (selectedConversation.contact.avatar ? <img src={selectedConversation.contact.avatar} alt={selectedConversation.contact.name} className="h-full w-full rounded-full object-cover" /> : selectedConversation.contact.name.charAt(0).toUpperCase())}
               </div>
 
               {/* Message Bubble */}
@@ -213,11 +237,11 @@ export const ChatWindow: React.FC = () => {
                           onClick={() => setLightboxImage(att.url)}
                           className="relative rounded overflow-hidden border border-slate-200 cursor-pointer group"
                         >
-                          <img
-                            src={att.url}
-                            alt={att.name}
-                            className="max-h-44 w-auto rounded object-cover"
-                          />
+                          {att.type?.startsWith('image/') && att.url ? (
+                            <img src={att.url} alt={att.name} className="max-h-44 w-auto rounded object-cover" />
+                          ) : (
+                            <div className="flex items-center gap-2 p-3 text-xs text-slate-700"><FileText className="h-4 w-4" />{att.name}</div>
+                          )}
                           <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-semibold gap-1">
                             <Maximize2 className="w-3.5 h-3.5" /> View
                           </div>
@@ -239,6 +263,7 @@ export const ChatWindow: React.FC = () => {
                     second: '2-digit',
                   })}
                 </span>
+                {isAgent && msg.metadata?.deliveryStatus && (msg.metadata.deliveryStatus === 'failed' ? <button type="button" onClick={() => sendMessage(msg.content, msg.messageType, msg.attachments)} className="block ml-auto text-[10px] font-semibold text-rose-600 underline hover:text-rose-800">Delivery failed · Retry</button> : <span className={`block text-[10px] ${msg.metadata.deliveryStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'} text-right mr-1`}>{msg.metadata.deliveryStatus === 'pending' ? 'Sending…' : 'Sent'}</span>)}
               </div>
             </div>
           );
@@ -296,20 +321,33 @@ export const ChatWindow: React.FC = () => {
 
             {/* 3. Paperclip Attachment */}
             <button
-              onClick={() => {
-                const attachment = {
-                  url: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=80',
-                  name: 'petbox_document.jpg',
-                  size: '450 KB',
-                  type: 'image/jpeg',
-                };
-                sendMessage('আপনার নির্দেশনামূলক ডকুমেন্টারি স্লিপ নিচে সংযুক্ত করা হলো:', 'image', [attachment]);
-              }}
+              onClick={() => attachmentInputRef.current?.click()}
               className="hover:text-slate-700 transition-colors"
               title="Attach File"
             >
               <Paperclip className="w-3.5 h-3.5" />
             </button>
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              accept="image/*,.pdf,.doc,.docx,.txt"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                const isImage = file.type.startsWith('image/');
+                const submitAttachment = (url: string) => {
+                  const attachment: MessageAttachment = { url, name: file.name, size: `${Math.max(1, Math.round(file.size / 1024))} KB`, type: file.type || 'application/octet-stream' };
+                  sendMessage(`Attached file: ${file.name}`, isImage ? 'image' : 'file', [attachment]);
+                };
+                if (isImage) {
+                  const reader = new FileReader();
+                  reader.onload = () => submitAttachment(String(reader.result || ''));
+                  reader.readAsDataURL(file);
+                } else submitAttachment('');
+                event.target.value = '';
+              }}
+            />
 
             {/* 4. Notepad / Template */}
             <button
@@ -329,7 +367,7 @@ export const ChatWindow: React.FC = () => {
               onClick={() => {
                 setInputText((prev) => prev + ' [Transaction Order #PETBOX-9821]');
               }}
-              className="hover:text-slate-700 transition-colors"
+              className="hidden"
               title="Cart / Order"
             >
               <ShoppingBag className="w-3.5 h-3.5" />
@@ -340,7 +378,7 @@ export const ChatWindow: React.FC = () => {
               onClick={() => {
                 setInputText((prev) => prev + ' *167#');
               }}
-              className="hover:text-slate-700 transition-colors"
+              className="hidden"
               title="Bookmark / Code"
             >
               <Bookmark className="w-3.5 h-3.5" />
@@ -357,7 +395,7 @@ export const ChatWindow: React.FC = () => {
 
             {/* 8. Voice Mic */}
             <button
-              onClick={handleVoiceRecord}
+              onClick={handleRealVoiceRecord}
               className={`hover:text-slate-700 transition-colors ${
                 isRecordingVoice ? 'text-rose-600 animate-pulse' : ''
               }`}
@@ -368,9 +406,7 @@ export const ChatWindow: React.FC = () => {
           </div>
 
           {/* 9. Language Label "EN" on right matching screenshot */}
-          <span className="text-[11px] font-bold text-slate-500 cursor-pointer hover:text-slate-800">
-            EN
-          </span>
+          <span className="text-[11px] font-bold text-slate-500" title="Translation is not configured">Original</span>
         </div>
 
         {/* Textarea Input: placeholder="Write your reply here..." */}
@@ -400,12 +436,13 @@ export const ChatWindow: React.FC = () => {
         </div>
 
         {/* Bottom Action Bar matching screenshot: Tag selector + Sentiment dropdown + Red "End" button */}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 pt-1">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 pt-1">
           {/* Left: Tag selector box matching screenshot: SPAM_Q » Other » und... ✖ */}
-          <div className="flex min-w-0 items-center gap-1">
+          <div className="flex min-w-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2">
+            <span className="text-[10px] font-bold uppercase text-slate-400">Category</span>
             <div className="flex min-w-0 max-w-[220px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
               <span className="min-w-0 truncate">
-                {activeTag ? activeTag.name : 'SPAM_Q » Other » und...'}
+                {activeTag ? activeTag.name : 'Add a tag'}
               </span>
               <button
                 onClick={() => setActiveTag(null)}
@@ -445,7 +482,8 @@ export const ChatWindow: React.FC = () => {
           </div>
 
           {/* Middle: Sentiment Dropdown matching screenshot: Negative */}
-          <div>
+          <div className="flex flex-col">
+            <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wide text-slate-400">Sentiment</label>
             <select
               value={selectedSentiment}
               onChange={(e) => {
@@ -467,6 +505,16 @@ export const ChatWindow: React.FC = () => {
             className="h-8 rounded-lg bg-[#E11D48] px-5 text-xs font-bold text-white shadow-2xs transition-colors hover:bg-rose-700 cursor-pointer"
           >
             End
+          </button>
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!inputText.trim()}
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Send reply"
+          >
+            <Send className="h-3.5 w-3.5" />
+            Send
           </button>
         </div>
       </div>

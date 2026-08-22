@@ -72,6 +72,9 @@ export const AdminPortal: React.FC = () => {
     auditLogs,
     conversations,
     waitingQueue,
+    customerEmails,
+    emailSettings,
+    updateEmailSettings,
     landingLimit,
     setLandingLimit,
     assignConversation,
@@ -777,7 +780,8 @@ export const AdminPortal: React.FC = () => {
       )}
 
       {activeTab === 'settings' && (
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4 max-w-2xl text-xs">
+        <div className="space-y-5 max-w-3xl text-xs">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
           <h3 className="font-bold text-slate-800 text-sm">Security & Operational Configurations</h3>
 
           <div className="space-y-4 divide-y divide-slate-100">
@@ -786,7 +790,7 @@ export const AdminPortal: React.FC = () => {
                 <p className="font-bold text-slate-800">Two-Factor Authentication (2FA) Enforcement</p>
                 <p className="text-slate-500 text-[11px]">Require all agents and supervisors to use TOTP authentication.</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-4 h-4 text-teal-600 rounded" />
+              <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Not configured</span>
             </div>
 
             <div className="pt-3 flex items-center justify-between">
@@ -794,7 +798,7 @@ export const AdminPortal: React.FC = () => {
                 <p className="font-bold text-slate-800">Operational Business Hours (Asia/Dhaka)</p>
                 <p className="text-slate-500 text-[11px]">Auto-switch channels to after-hours bot auto-reply outside schedule.</p>
               </div>
-              <span className="font-bold text-slate-700 font-mono">08:00 AM - 11:59 PM</span>
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">Managed by server</span>
             </div>
 
             <div className="pt-3 flex items-center justify-between">
@@ -802,7 +806,33 @@ export const AdminPortal: React.FC = () => {
                 <p className="font-bold text-slate-800">Strict Resolution Tag & Sentiment Enforcement</p>
                 <p className="text-slate-500 text-[11px]">Prevent agents from pressing 'End' without choosing valid tag & sentiment.</p>
               </div>
-              <input type="checkbox" defaultChecked disabled className="w-4 h-4 text-teal-600 rounded" />
+              <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">Enforced</span>
+            </div>
+          </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm">Email & Queue Operations</h3>
+              <p className="mt-1 text-[11px] text-slate-500">Control email ingestion and replies. SMTP/IMAP credentials remain protected in Render Environment Variables.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {([
+                ['enabled', 'Enable email channel', 'Accept and process customer email queries.'],
+                ['autoSync', 'Automatic IMAP sync', 'Fetch new emails after agent login.'],
+                ['autoLand', 'Auto-land email queries', 'Land emails into active inbox slots when available.'],
+                ['allowReplies', 'Allow email replies', 'Permit agents to send SMTP replies to customers.'],
+              ] as const).map(([key, label, description]) => (
+                <label key={key} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 cursor-pointer">
+                  <span><span className="block font-bold text-slate-800">{label}</span><span className="mt-1 block text-[11px] leading-4 text-slate-500">{description}</span></span>
+                  <input type="checkbox" checked={emailSettings[key]} onChange={(event) => updateEmailSettings({ [key]: event.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-teal-600" />
+                </label>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg bg-sky-50 p-3"><span className="block text-[10px] font-bold uppercase text-sky-600">Email tickets</span><span className="mt-1 block text-xl font-black text-sky-800">{customerEmails.length}</span></div>
+              <div className="rounded-lg bg-amber-50 p-3"><span className="block text-[10px] font-bold uppercase text-amber-600">Unread emails</span><span className="mt-1 block text-xl font-black text-amber-800">{customerEmails.filter((email) => !email.isRead).length}</span></div>
+              <div className="rounded-lg bg-emerald-50 p-3"><span className="block text-[10px] font-bold uppercase text-emerald-600">Waiting queries</span><span className="mt-1 block text-xl font-black text-emerald-800">{waitingQueue.length}</span></div>
             </div>
           </div>
         </div>

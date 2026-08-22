@@ -34,6 +34,7 @@ export const Header: React.FC = () => {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [waitingQueueOpen, setWaitingQueueOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const pendingFollowUps = conversations.filter((conversation) => conversation.status === 'pending').length;
 
   // Timer for status duration
   useEffect(() => {
@@ -166,7 +167,7 @@ export const Header: React.FC = () => {
             title="Pending Follow-ups"
           >
             <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-xs font-semibold text-slate-700">0</span>
+            <span className="text-xs font-semibold text-slate-700">{pendingFollowUps}</span>
           </button>
 
           {/* Pill 3: customer support email mailbox */}
@@ -213,7 +214,8 @@ export const Header: React.FC = () => {
             onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
             className="flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition-all shadow-2xs"
           >
-            <div className="w-4.5 h-4.5 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-[10px]">
+            <div className="relative w-4.5 h-4.5 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center text-slate-600 text-[10px]">
+              {currentUser.avatar && <img src={currentUser.avatar} alt={currentUser.name} className="absolute inset-0 h-full w-full object-cover" />}
               👤
             </div>
             <span className="text-xs font-medium text-slate-800">{currentUser.name}</span>

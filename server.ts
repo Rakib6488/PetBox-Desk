@@ -9,6 +9,7 @@ import { PORT } from './src/server/config';
 import { checkDatabaseConnection } from './src/server/db';
 import { coreRouter } from './src/server/routes/core';
 import { emailRouter } from './src/server/routes/email';
+import { channelsRouter } from './src/server/routes/channels';
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.get('/api/health', async (_req, res) => {
 
 app.use('/api', coreRouter);
 app.use('/api/email', emailRouter);
+app.use('/api/channels', channelsRouter);
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {

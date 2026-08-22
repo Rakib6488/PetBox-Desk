@@ -193,23 +193,22 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
           ticketNumber: selectedEmail.ticketNumber,
       });
       if (data.success) {
+        replyToCustomerEmail(selectedEmail.id, content);
+        setReplyText('');
+        setReplySentSuccess(true);
+        setTimeout(() => setReplySentSuccess(false), 4000);
         showToast(
           'success',
           `Dispatched live SMTP email to ${selectedEmail.fromEmail} (MessageId: ${data.messageId?.slice(0, 18)}...)`
         );
       } else {
-        // Still register in local state for seamless fallback
-        showToast('info', `Reply recorded. (SMTP server response: ${data.error || 'Processed'})`);
+        throw new Error(data.error || 'SMTP server did not accept the email.');
       }
     } catch (err: any) {
-      console.warn('SMTP fallback:', err.message);
-      showToast('success', `Email reply dispatched to ${selectedEmail.fromEmail}`);
+      console.error('SMTP reply failed:', err);
+      showToast('error', `Email was not sent: ${err?.message || 'SMTP delivery failed.'}`);
     } finally {
-      replyToCustomerEmail(selectedEmail.id, content);
-      setReplyText('');
       setIsSendingSmtp(false);
-      setReplySentSuccess(true);
-      setTimeout(() => setReplySentSuccess(false), 4000);
     }
   };
 
@@ -273,17 +272,23 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
     if (!composeForm.toEmail || !composeForm.subject || !composeForm.body) return;
 
     setIsSendingSmtp(true);
+    let sent = false;
     try {
-      await emailApi.send({
+      const data = await emailApi.send({
           to: composeForm.toEmail,
           subject: composeForm.subject,
           body: composeForm.body,
       });
+      if (!data.success) throw new Error(data.error || 'SMTP server did not accept the email.');
+      sent = true;
     } catch (err) {
-      console.warn('SMTP direct call fallback');
+      console.error('SMTP compose failed:', err);
+      showToast('error', `Email was not sent: ${(err as Error)?.message || 'SMTP delivery failed.'}`);
     } finally {
       setIsSendingSmtp(false);
     }
+
+    if (!sent) return;
 
     sendNewCustomerEmail({
       ticketNumber: '',

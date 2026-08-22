@@ -30,7 +30,20 @@ emailRouter.post('/send', async (req, res) => {
   const smtp = smtpConfig();
   if (!smtp.host || !smtp.auth.user || !smtp.auth.pass) return res.status(503).json({ error: 'SMTP is not configured.' });
   try {
-    const info = await nodemailer.createTransport(smtp).sendMail({ from: smtp.auth.user, to, subject, text: body, html: html || undefined, inReplyTo, references });
+    const transporter = nodemailer.createTransport({
+      ...smtp,
+      tls: { minVersion: 'TLSv1.2' },
+    });
+    await transporter.verify();
+    const info = await transporter.sendMail({
+      from: smtp.auth.user,
+      to,
+      subject,
+      text: body,
+      html: html || undefined,
+      inReplyTo,
+      references,
+    });
     res.json({ success: true, messageId: info.messageId, sentAt: new Date().toISOString() });
   } catch (error: any) { res.status(500).json({ error: error?.message || 'Failed to send email.' }); }
 });
@@ -53,7 +66,7 @@ emailRouter.get('/fetch', async (req, res) => {
           const parsed = await simpleParser(message.source);
           const from = parsed.from?.value?.[0];
           const receivedAt = message.internalDate instanceof Date ? message.internalDate.toISOString() : message.internalDate || new Date().toISOString();
-          emails.push({ id: `imap_${message.uid || message.seq}`, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body: parsed.text || '', preview: (parsed.text || '').slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false });
+          emails.push({ id: `imap_${message.uid || message.seq}`, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body: parsed.text || '', preview: (parsed.text || '').slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '' });
         }
       }
     } finally { lock.release(); await client.logout(); }

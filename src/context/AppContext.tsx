@@ -18,10 +18,12 @@ import {
   WaitingQuery,
   CustomerEmail,
   ConversationSummary,
+  EmailOperationsSettings,
 } from '../types';
 import { authApi } from '../features/auth/authApi';
 import { inboxApi } from '../features/inbox/inboxApi';
 import { emailApi } from '../features/email/emailApi';
+import { channelApi } from '../features/channels/channelApi';
 
 export type ActiveNavTab =
   | 'inbox'
@@ -160,6 +162,8 @@ interface AppContextType {
 
   // Customer Email Tickets (4k+ Support Mailbox)
   customerEmails: CustomerEmail[];
+  emailSettings: EmailOperationsSettings;
+  updateEmailSettings: (settings: Partial<EmailOperationsSettings>) => void;
   markEmailRead: (emailId: string) => void;
   toggleEmailStar: (emailId: string) => void;
   updateEmailStatus: (emailId: string, status: CustomerEmail['status']) => void;
@@ -199,6 +203,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [landingLimit, setLandingLimitState] = useState(2);
 
   const [customerEmails, setCustomerEmails] = useState<CustomerEmail[]>([]);
+  const [emailSettings, setEmailSettings] = useState<EmailOperationsSettings>({
+    enabled: true,
+    autoSync: true,
+    autoLand: true,
+    allowReplies: true,
+  });
 
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [currentRoute, setCurrentRoute] = useState<AppRoute>('/agent/inbox');
@@ -287,6 +297,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       contact: newContact,
       subject: item.subject,
       sourceEmailId: item.sourceEmailId,
+      emailMessageId: item.messageId,
+      emailReferences: item.references,
       assignedAgentId: currentUser.id,
       assignedAgent: currentUser,
       status: 'open',
@@ -521,6 +533,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (Array.isArray(data.auditLogs)) setAuditLogs(data.auditLogs);
           if (Array.isArray(data.waitingQueue)) setWaitingQueue(data.waitingQueue);
           if (Array.isArray(data.customerEmails)) setCustomerEmails(data.customerEmails);
+          if (data.emailSettings && typeof data.emailSettings === 'object') setEmailSettings((prev) => ({ ...prev, ...data.emailSettings }));
           if (typeof data.landingLimit === 'number') setLandingLimit(data.landingLimit);
         }
         dbHydratedRef.current = true;
@@ -533,10 +546,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Persist every workspace change to PostgreSQL. No browser storage fallback is used.
   useEffect(() => {
     if (isLoggedIn && dbHydratedRef.current) {
-      void inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit })
+      void inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings })
         .catch((error) => console.error('Failed to persist workspace state to PostgreSQL', error));
     }
-  }, [isLoggedIn, users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit]);
+  }, [isLoggedIn, users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings]);
+
+  const updateEmailSettings = (settings: Partial<EmailOperationsSettings>) => {
+    setEmailSettings((prev) => ({ ...prev, ...settings }));
+    addAuditLog('UPDATE_EMAIL_SETTINGS', 'EmailOperations', 'email_settings', `Updated email operations: ${Object.entries(settings).map(([key, value]) => `${key}=${String(value)}`).join(', ')}`);
+  };
 
   // Selected conversation computed
   const selectedConversation = useMemo(() => {
@@ -611,6 +629,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   ) => {
     if (!selectedConversationId || !content.trim()) return;
 
+    const activeConversation = selectedConversation;
+    const isExternalChannel = activeConversation?.channelType === 'email' || activeConversation?.channelType === 'facebook';
     const newMessage: Message = {
       id: `msg_${Date.now()}`,
       conversationId: selectedConversationId,
@@ -623,21 +643,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       messageType,
       createdAt: new Date().toISOString(),
       isRead: true,
+      metadata: { deliveryStatus: isExternalChannel ? 'pending' : 'sent' },
     };
 
     setMessages((prev) => [...prev, newMessage]);
-    const activeConversation = selectedConversation;
-    void inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'live_chat').catch(() => undefined);
-    if (activeConversation?.channelType === 'email' && activeConversation.contact.email) {
+    const updateDeliveryStatus = (deliveryStatus: 'sent' | 'failed') => setMessages((prev) => prev.map((message) => message.id === newMessage.id ? { ...message, metadata: { ...message.metadata, deliveryStatus } } : message));
+    void inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'live_chat')
+      .then(() => { if (!isExternalChannel) updateDeliveryStatus('sent'); })
+      .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('MESSAGE_PERSISTENCE_FAILED', 'Conversation', selectedConversationId, error?.message || 'Unable to save message.'); });
+    if (activeConversation?.channelType === 'facebook' && activeConversation.contact.facebookPsid) {
+      void channelApi.sendFacebookMessage({ recipientId: activeConversation.contact.facebookPsid, text: content })
+        .then(() => { updateDeliveryStatus('sent'); addAuditLog('FACEBOOK_MESSAGE_SENT', 'Conversation', selectedConversationId, `Facebook message accepted for ${activeConversation.contact.name}`); })
+        .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('FACEBOOK_MESSAGE_FAILED', 'Conversation', selectedConversationId, `Facebook message failed: ${error?.message || 'Facebook delivery failed'}`); });
+    }
+    if (activeConversation?.channelType === 'email' && activeConversation.contact.email && emailSettings.allowReplies && emailSettings.enabled) {
       void emailApi.send({
         to: activeConversation.contact.email,
         subject: activeConversation.subject?.startsWith('Re:') ? activeConversation.subject : `Re: ${activeConversation.subject || 'Petbox Desk Support'}`,
         body: content,
+        inReplyTo: activeConversation.emailMessageId,
+        references: [activeConversation.emailReferences, activeConversation.emailMessageId].filter(Boolean).join(' '),
       }).then(() => {
+        updateDeliveryStatus('sent');
         if (activeConversation.sourceEmailId) {
           setCustomerEmails((prev) => prev.map((email) => email.id === activeConversation.sourceEmailId ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name } : email));
         }
-      }).catch((error) => console.error('Failed to send email reply via SMTP', error));
+        addAuditLog('EMAIL_REPLY_SENT', 'Conversation', selectedConversationId, `Email reply accepted by SMTP for ${activeConversation.contact.email}`);
+      }).catch((error) => {
+        updateDeliveryStatus('failed');
+        console.error('Failed to send email reply via SMTP', error);
+        addAuditLog('EMAIL_REPLY_FAILED', 'Conversation', selectedConversationId, `Email reply failed for ${activeConversation.contact.email}: ${error?.message || 'SMTP request failed'}`);
+      });
+    } else if (activeConversation?.channelType === 'email') {
+      addAuditLog('EMAIL_REPLY_BLOCKED', 'Conversation', selectedConversationId, 'Email reply blocked by Admin email operations settings or missing customer email address.');
     }
 
     // Update conversation metadata
@@ -699,6 +737,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return c;
       })
     );
+    const endedConversation = conversations.find((conversation) => conversation.id === conversationId);
+    if (endedConversation?.channelType === 'email' && endedConversation.sourceEmailId) {
+      setCustomerEmails((prev) => prev.map((email) => email.id === endedConversation.sourceEmailId
+        ? { ...email, status: 'resolved', isRead: true, assignedAgentName: currentUser.name }
+        : email
+      ));
+    }
+    if (selectedConversationId === conversationId) {
+      setSelectedConversationId(null);
+    }
 
     playSoundChime();
 
@@ -899,7 +947,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!isAgentPaused) {
       setTimeout(() => {
         setWaitingQueue((prevQueue) => {
-          if (prevQueue.length === 0) return prevQueue;
+          if (prevQueue.length === 0) {
+            setConversations((convs) => {
+              const nextActive = convs.find(
+                (conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.id !== conversationId
+              );
+              setSelectedConversationId(nextActive?.id || null);
+              return convs;
+            });
+            return prevQueue;
+          }
           const [nextItem, ...remaining] = prevQueue;
           const newlyLanded = landQueryItem(nextItem);
           setSelectedConversationId(newlyLanded.id);
@@ -912,9 +969,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const remainingActive = convs.filter(
             (c) => (c.status === 'open' || c.status === 'pending') && c.id !== conversationId
           );
-          if (remainingActive.length > 0) {
-            setSelectedConversationId(remainingActive[0].id);
-          }
+          setSelectedConversationId(remainingActive[0]?.id || null);
           return convs;
         });
       }, 200);
@@ -1147,6 +1202,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       contact: newContact,
       assignedAgentId: currentUser.id,
       assignedAgent: currentUser,
+      emailMessageId: email.messageId,
+      emailReferences: email.references,
       status: 'open',
       sentiment: email.priority === 'urgent' ? 'negative' : 'neutral',
       tags: tags.length ? [tags[0]] : [],
@@ -1206,7 +1263,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (uniqueNew.length === 0) return prev;
       return [...uniqueNew, ...prev];
     });
-    if (uniqueNewEmails.length) {
+    if (uniqueNewEmails.length && emailSettings.enabled) {
       const known = new Set([
         ...waitingQueue.map((item) => item.sourceEmailId),
         ...conversations.map((conversation) => conversation.sourceEmailId),
@@ -1230,6 +1287,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           priority: email.priority || 'medium',
           subject: email.subject,
           sourceEmailId: email.id,
+          messageId: email.messageId,
+          references: email.references,
         }));
 
       let activeOpenCount = conversations.filter(
@@ -1238,7 +1297,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const queuedEmails: WaitingQuery[] = [];
 
       incoming.forEach((query) => {
-        if (!isAgentPaused && activeOpenCount < landingLimit) {
+        if (emailSettings.autoLand && !isAgentPaused && activeOpenCount < landingLimit) {
           landQueryItem(query);
           activeOpenCount += 1;
         } else {
@@ -1258,7 +1317,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // The email API is protected by authentication. Do not start IMAP sync
     // while the login screen is still active; that only creates an expected
     // 401 request before a session exists.
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || !emailSettings.enabled || !emailSettings.autoSync) return;
 
     emailApi.fetch(25)
       .then((data) => {
@@ -1270,7 +1329,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // Fallback silently if offline or initial boot
         console.log('Background IMAP sync initialized:', err.message);
       });
-  }, [isLoggedIn]);
+  }, [isLoggedIn, emailSettings.enabled, emailSettings.autoSync]);
 
   // Reset all data to default
   const resetAllData = () => {
@@ -1282,6 +1341,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setConversations([]);
     setWaitingQueue([]);
     setCustomerEmails([]);
+    setEmailSettings({ enabled: true, autoSync: true, autoLand: true, allowReplies: true });
     setMessages([]);
     setSlaRules([]);
     setAuditLogs([]);
@@ -1355,6 +1415,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         dropNextIncomingQuery,
         landNextQueryFromQueue,
         customerEmails,
+        emailSettings,
+        updateEmailSettings,
         markEmailRead,
         toggleEmailStar,
         updateEmailStatus,

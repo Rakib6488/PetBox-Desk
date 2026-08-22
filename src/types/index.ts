@@ -126,6 +126,8 @@ export interface WaitingQuery {
   priority?: 'urgent' | 'high' | 'medium' | 'low';
   subject?: string;
   sourceEmailId?: string;
+  messageId?: string;
+  references?: string;
 }
 
 export interface CustomerEmail {
@@ -149,6 +151,15 @@ export interface CustomerEmail {
   attachments?: { name: string; size: string; type: string }[];
   assignedAgentName?: string;
   accountNumber?: string;
+  messageId?: string;
+  references?: string;
+}
+
+export interface EmailOperationsSettings {
+  enabled: boolean;
+  autoSync: boolean;
+  autoLand: boolean;
+  allowReplies: boolean;
 }
 
 export interface ConversationSummary {
@@ -169,6 +180,8 @@ export interface Conversation {
   contact: Contact;
   subject?: string;
   sourceEmailId?: string;
+  emailMessageId?: string;
+  emailReferences?: string;
   assignedAgentId?: string;
   assignedAgent?: User;
   status: ConversationStatus;
