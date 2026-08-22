@@ -1,0 +1,6 @@
+{
+  "name": "Petbox Desk",
+  "description": "Multi-channel live support platform with Agent Panel, Facebook & Live Chat sync, sentiment analysis, Quick Responses, and Admin Analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

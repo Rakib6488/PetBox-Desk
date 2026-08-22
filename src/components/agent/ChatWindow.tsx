@@ -1,0 +1,497 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { useApp } from '../../context/AppContext';
+import { Tag, SentimentType, MessageAttachment } from '../../types';
+import {
+  Smile,
+  Pause,
+  Play,
+  Paperclip,
+  FileText,
+  ShoppingBag,
+  Bookmark,
+  Info,
+  Mic,
+  Send,
+  RotateCcw,
+  ChevronDown,
+  X,
+  Maximize2,
+  CheckCircle2,
+  Facebook,
+  Globe,
+  Mail,
+} from 'lucide-react';
+
+export const ChatWindow: React.FC = () => {
+  const {
+    selectedConversation,
+    conversationMessages,
+    sendMessage,
+    updateConversationSentiment,
+    addTagToConversation,
+    removeTagFromConversation,
+    endConversation,
+    tags,
+    currentUser,
+    pauseConversation,
+    resumeConversation,
+  } = useApp();
+
+  const [inputText, setInputText] = useState('');
+  const [selectedSentiment, setSelectedSentiment] = useState<SentimentType>('negative');
+  const [activeTag, setActiveTag] = useState<Tag | null>(null);
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+  const [languageMode, setLanguageMode] = useState<'EN' | 'BN'>('EN');
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync conversation tags & sentiment
+  useEffect(() => {
+    if (selectedConversation) {
+      if (selectedConversation.sentiment) {
+        setSelectedSentiment(selectedConversation.sentiment);
+      }
+      if (selectedConversation.tags && selectedConversation.tags.length > 0) {
+        setActiveTag(selectedConversation.tags[0]);
+      } else if (tags.length > 0) {
+        setActiveTag(tags[0]);
+      }
+    }
+  }, [selectedConversation?.id, tags]);
+
+  // Auto scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [conversationMessages]);
+
+  if (!selectedConversation) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8 select-none">
+        <p className="text-sm font-semibold text-slate-600">No conversation selected</p>
+      </div>
+    );
+  }
+
+  const handleSend = () => {
+    if (!inputText.trim()) return;
+    const text = inputText.trim();
+    sendMessage(text);
+    setInputText('');
+
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleEndTicket = () => {
+    if (activeTag) {
+      endConversation(selectedConversation.id, activeTag, selectedSentiment);
+    }
+  };
+
+  const handleVoiceRecord = () => {
+    setIsRecordingVoice(true);
+    setTimeout(() => {
+      setIsRecordingVoice(false);
+      sendMessage('🎙️ [Voice Audio Note 0:12s] "প্রিয় গ্রাহক, আপনার তথ্যাদি গ্রহণ করা হয়েছে।"', 'audio');
+    }, 1500);
+  };
+
+  const emojis = ['👍', '🙏', '😊', '❤️', '✅', '⚠️', '🎉', '📌', '🤝', '🙌'];
+  const channelMeta = selectedConversation.channelType === 'email'
+    ? { label: 'Email', icon: <Mail className="w-3 h-3" />, color: 'bg-sky-600' }
+    : selectedConversation.channelType === 'live_chat'
+      ? { label: 'Live chat', icon: <Globe className="w-3 h-3" />, color: 'bg-orange-500' }
+      : { label: 'Messenger', icon: <Facebook className="w-3 h-3" />, color: 'bg-[#1877F2]' };
+
+  return (
+    <div className="flex-1 flex flex-col bg-[#F8FAFC] h-full overflow-hidden select-none relative">
+      {/* Top Header Bar: Petbox Desk channel and agent controls */}
+      <div className="h-10 bg-white border-b border-slate-200 px-3 flex items-center justify-between shrink-0 z-10">
+        {/* Channel and page */}
+        <div className="flex items-center gap-2">
+          <div className={`w-5 h-5 rounded-full ${channelMeta.color} text-white flex items-center justify-center font-bold text-xs shadow-2xs`} title={channelMeta.label}>
+            {channelMeta.icon}
+          </div>
+          <span className="font-bold text-slate-800 text-xs tracking-tight">
+            {selectedConversation.pageName || channelMeta.label}
+          </span>
+          <span className="text-[10px] text-slate-400">{channelMeta.label}</span>
+        </div>
+
+        {/* Right: Refresh icon in circle + "A" Agent Avatar in circle matching screenshot */}
+        <div className="flex items-center gap-2">
+          {/* Refresh icon */}
+          <button
+            onClick={() => setInputText('')}
+            className="w-6 h-6 rounded-full border border-slate-200 hover:bg-slate-100 text-slate-500 flex items-center justify-center transition-colors"
+            title="Refresh Conversation"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Agent Avatar Circle "A" */}
+          <div className="w-6 h-6 rounded-full bg-slate-200 border border-slate-300 text-slate-600 font-bold text-xs flex items-center justify-center">
+            A
+          </div>
+        </div>
+      </div>
+
+      {/* Message Timeline Area matching screenshot */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
+        {/* Latest activity timestamp */}
+        <div className="flex justify-center">
+          <span className="text-[10px] text-slate-400 font-mono">
+            Last activity {new Date(selectedConversation.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+
+        {/* Date marker */}
+        <div className="flex flex-col items-center gap-0.5 my-0.5">
+          <div className="px-2.5 py-0.5 rounded bg-slate-200/80 text-slate-700 text-[10px] font-medium">
+            {new Date(selectedConversation.lastMessageAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+          </div>
+          <span className="text-[10px] text-slate-400 font-medium">Conversation timeline</span>
+        </div>
+
+        {/* Message Bubbles */}
+        {conversationMessages.map((msg) => {
+          const isAgent = msg.senderType === 'agent';
+          const isSystem = msg.senderType === 'system';
+
+          if (isSystem) {
+            return (
+              <div key={msg.id} className="flex justify-center my-1">
+                <div className="px-3 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-500 text-[10px]">
+                  {msg.content}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={msg.id}
+              className={`flex items-start gap-2 max-w-[85%] ${
+                isAgent ? 'self-end flex-row-reverse' : 'self-start'
+              }`}
+            >
+              {/* Avatar circle (M for customer, Agent avatar for agent) */}
+              <div className="w-6 h-6 rounded-full bg-slate-300 border border-slate-300 text-slate-700 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                {isAgent ? 'A' : 'M'}
+              </div>
+
+              {/* Message Bubble */}
+              <div className="flex flex-col">
+                <div
+                  className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
+                    isAgent
+                      ? 'bg-teal-700 text-white rounded-tr-none'
+                      : 'bg-white border border-slate-200 text-slate-900 rounded-tl-none shadow-2xs'
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                  {/* Attachment image preview if present */}
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {msg.attachments.map((att, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => setLightboxImage(att.url)}
+                          className="relative rounded overflow-hidden border border-slate-200 cursor-pointer group"
+                        >
+                          <img
+                            src={att.url}
+                            alt={att.name}
+                            className="max-h-44 w-auto rounded object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-semibold gap-1">
+                            <Maximize2 className="w-3.5 h-3.5" /> View
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Timestamp below bubble matching screenshot: 12:06:56 AM */}
+                <span
+                  className={`text-[10px] text-slate-400 font-mono mt-0.5 ${
+                    isAgent ? 'text-right mr-1' : 'text-left ml-1'
+                  }`}
+                >
+                  {new Date(msg.createdAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Reply Input Box with rich icons matching screenshot */}
+      <div className="bg-white border-t border-slate-200 p-3 shrink-0 flex flex-col gap-2">
+        {/* Upper Icons Toolbar matching reference screenshot: emoji, pause, clip, notepad, cart, bookmark, info, mic, EN */}
+        <div className="flex items-center justify-between text-slate-400 px-0.5">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* 1. Emoji */}
+            <div className="relative">
+              <button
+                onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}
+                className="hover:text-slate-700 transition-colors"
+                title="Emoji"
+              >
+                <Smile className="w-4 h-4" />
+              </button>
+
+              {emojiPickerOpen && (
+                <div className="absolute bottom-6 left-0 bg-white border border-slate-200 rounded-lg shadow-lg p-1.5 z-50 flex gap-1 text-sm">
+                  {emojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => {
+                        setInputText((prev) => prev + emoji);
+                        setEmojiPickerOpen(false);
+                      }}
+                      className="p-1 hover:bg-slate-100 rounded"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Pause */}
+            <button
+              onClick={() => {
+                if (selectedConversation.status === 'paused') {
+                  resumeConversation(selectedConversation.id);
+                } else {
+                  pauseConversation(selectedConversation.id, 'Paused from reply toolbar');
+                }
+              }}
+              className="hover:text-slate-700 transition-colors"
+              title={selectedConversation.status === 'paused' ? 'Resume conversation' : 'Pause conversation'}
+            >
+              {selectedConversation.status === 'paused' ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* 3. Paperclip Attachment */}
+            <button
+              onClick={() => {
+                const attachment = {
+                  url: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=80',
+                  name: 'petbox_document.jpg',
+                  size: '450 KB',
+                  type: 'image/jpeg',
+                };
+                sendMessage('আপনার নির্দেশনামূলক ডকুমেন্টারি স্লিপ নিচে সংযুক্ত করা হলো:', 'image', [attachment]);
+              }}
+              className="hover:text-slate-700 transition-colors"
+              title="Attach File"
+            >
+              <Paperclip className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 4. Notepad / Template */}
+            <button
+              onClick={() => {
+                setInputText(
+                  'প্রিয় গ্রাহক, আপনার সমস্যার বিবরণটি আমাদের জানান যাতে আমরা যাচাই করে জানাতে পারি।'
+                );
+              }}
+              className="hover:text-slate-700 transition-colors"
+              title="Template"
+            >
+              <FileText className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 5. Cart */}
+            <button
+              onClick={() => {
+                setInputText((prev) => prev + ' [Transaction Order #PETBOX-9821]');
+              }}
+              className="hover:text-slate-700 transition-colors"
+              title="Cart / Order"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 6. Bookmark */}
+            <button
+              onClick={() => {
+                setInputText((prev) => prev + ' *167#');
+              }}
+              className="hover:text-slate-700 transition-colors"
+              title="Bookmark / Code"
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 7. Info */}
+            <button
+              onClick={() => setInputText((prev) => `${prev}${prev ? '\n\n' : ''}Customer details: ${selectedConversation.contact.email || 'No email on file'} | ${selectedConversation.contact.phone || 'No phone on file'}`)}
+              className="hover:text-slate-700 transition-colors"
+              title="Info"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+
+            {/* 8. Voice Mic */}
+            <button
+              onClick={handleVoiceRecord}
+              className={`hover:text-slate-700 transition-colors ${
+                isRecordingVoice ? 'text-rose-600 animate-pulse' : ''
+              }`}
+              title="Voice Recording"
+            >
+              <Mic className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* 9. Language Label "EN" on right matching screenshot */}
+          <span className="text-[11px] font-bold text-slate-500 cursor-pointer hover:text-slate-800">
+            EN
+          </span>
+        </div>
+
+        {/* Textarea Input: placeholder="Write your reply here..." */}
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            rows={2}
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Write your reply here..."
+            className="min-h-[58px] w-full rounded-lg border border-slate-200 bg-white p-3 pr-10 text-xs text-slate-800 placeholder-slate-400 focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100 resize-none font-normal"
+          />
+
+          <button
+            onClick={handleSend}
+            disabled={!inputText.trim()}
+            className={`absolute right-2 bottom-2.5 p-1 rounded transition-all ${
+              inputText.trim()
+                ? 'bg-teal-700 text-white hover:bg-teal-800'
+                : 'text-slate-300 cursor-not-allowed'
+            }`}
+            title="Send"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Bottom Action Bar matching screenshot: Tag selector + Sentiment dropdown + Red "End" button */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 pt-1">
+          {/* Left: Tag selector box matching screenshot: SPAM_Q » Other » und... ✖ */}
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="flex min-w-0 max-w-[220px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
+              <span className="min-w-0 truncate">
+                {activeTag ? activeTag.name : 'SPAM_Q » Other » und...'}
+              </span>
+              <button
+                onClick={() => setActiveTag(null)}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+
+            {/* Dropdown toggle arrow */}
+            <div className="relative">
+              <button
+                onClick={() => setTagDropdownOpen(!tagDropdownOpen)}
+                className="rounded border border-slate-300 p-1.5 text-slate-500 hover:bg-slate-100"
+              >
+                <ChevronDown className="w-3 h-3" />
+              </button>
+
+              {tagDropdownOpen && (
+                <div className="absolute bottom-7 left-0 w-52 bg-white border border-slate-200 rounded-md shadow-xl py-1 z-50 text-xs max-h-48 overflow-y-auto">
+                  {tags.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setActiveTag(t);
+                        addTagToConversation(selectedConversation.id, t);
+                        setTagDropdownOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between text-slate-700"
+                    >
+                      <span className="truncate">{t.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Middle: Sentiment Dropdown matching screenshot: Negative */}
+          <div>
+            <select
+              value={selectedSentiment}
+              onChange={(e) => {
+                const s = e.target.value as SentimentType;
+                setSelectedSentiment(s);
+                updateConversationSentiment(selectedConversation.id, s);
+              }}
+              className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 focus:border-teal-400 focus:outline-none"
+            >
+              <option value="negative">Negative</option>
+              <option value="neutral">Neutral</option>
+              <option value="positive">Positive</option>
+            </select>
+          </div>
+
+          {/* Right: Solid Red "End" button matching screenshot */}
+          <button
+            onClick={handleEndTicket}
+            className="h-8 rounded-lg bg-[#E11D48] px-5 text-xs font-bold text-white shadow-2xs transition-colors hover:bg-rose-700 cursor-pointer"
+          >
+            End
+          </button>
+        </div>
+      </div>
+
+      {/* Lightbox for attachments */}
+      {lightboxImage && (
+        <div
+          onClick={() => setLightboxImage(null)}
+          className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4"
+        >
+          <div className="relative max-w-2xl max-h-[85vh] bg-white rounded-lg overflow-hidden p-2">
+            <img
+              src={lightboxImage}
+              alt="Attachment"
+              className="max-w-full max-h-[75vh] object-contain rounded"
+            />
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute top-3 right-3 bg-black/60 text-white p-1 rounded-full hover:bg-black"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
