@@ -1,0 +1,56 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
+
+# Petbox Desk
+
+Petbox Desk is an omnichannel customer support workspace with agent inbox, email support, administration, reports and PostgreSQL-backed APIs.
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
+
+   This command builds the frontend and starts Petbox Desk on `http://127.0.0.1:3002/`.
+
+## Production backend setup
+
+The backend uses Node.js + TypeScript + Express, PostgreSQL, and REST APIs. Copy `.env.example` to `.env` and set `DATABASE_URL` and a long random `SESSION_SECRET`.
+
+Initialize the database:
+
+```bash
+npm run db:init
+npm run db:create-user -- support@example.com "Support Admin" admin "use-a-strong-password"
+```
+
+The main protected endpoints are `/api/auth/*`, `/api/bootstrap`, `/api/conversations/:id`, and `/api/email/*`. Authentication uses an HttpOnly session cookie; passwords are hashed with Node.js `scrypt`.
+
+## Project structure
+
+```text
+server.ts                  # server bootstrap only
+src/server/config.ts       # environment and service configuration
+src/server/db.ts           # PostgreSQL pool and health check
+src/server/auth.ts         # sessions and password hashing
+src/server/routes/core.ts  # auth, state and conversation APIs
+src/server/routes/email.ts # SMTP, IMAP and AI email APIs
+src/services/apiClient.ts  # shared frontend HTTP client
+src/features/auth/authApi.ts # frontend authentication API
+src/features/app/storage.ts # frontend storage adapter
+src/features/inbox/inboxApi.ts # inbox/conversation API
+src/features/email/emailApi.ts # email API
+src/components/auth/       # login UI
+src/components/agent/      # inbox and agent UI
+src/components/admin/      # admin UI
+src/components/email/      # email UI
+src/components/reports/    # reporting UI
+database/schema.sql        # PostgreSQL schema
+scripts/                   # database setup and user creation scripts
+```
