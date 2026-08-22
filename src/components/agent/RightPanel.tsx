@@ -27,7 +27,6 @@ export const RightPanel: React.FC = () => {
     conversations,
     customerEmails,
     assignConversation,
-    navigateTo,
   } = useApp();
 
   const [activeQrTab, setActiveQrTab] = useState<QuickResponseCategory>('mine');
@@ -39,6 +38,7 @@ export const RightPanel: React.FC = () => {
   const [qrContent, setQrContent] = useState('');
   const [qrCategory, setQrCategory] = useState<QuickResponseCategory>('mine');
   const [assignOpen, setAssignOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   if (!selectedConversation) {
     return (
@@ -143,7 +143,7 @@ export const RightPanel: React.FC = () => {
 
         <div className="rounded-lg border border-teal-100 bg-teal-50/60 p-2.5">
           <div className="mb-2 flex items-center justify-between gap-2"><span className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Customer Summary</span><span className="text-[10px] font-semibold text-teal-600">{selectedConversation.summary?.customerMessageCount || customerMessages.length} messages</span></div>
-          <div className="mb-2 flex justify-end"><button type="button" onClick={() => navigateTo('/bi/summary')} className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-700 hover:border-violet-300 hover:bg-violet-50">Complete Summary</button></div>
+          <div className="mb-2 flex justify-end"><button type="button" onClick={() => setSummaryOpen(true)} className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-700 hover:border-violet-300 hover:bg-violet-50">Complete Summary</button></div>
           <p className="text-[11px] leading-4 text-slate-700">Other</p>
         </div>
 
@@ -281,6 +281,34 @@ export const RightPanel: React.FC = () => {
       </div>
 
       {/* Add QR Modal */}
+      {summaryOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4" onClick={() => setSummaryOpen(false)}>
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-violet-600">Complete Summary</p>
+                <h2 className="mt-1 text-lg font-black text-slate-800">{contact.name}</h2>
+              </div>
+              <button type="button" onClick={() => setSummaryOpen(false)} className="text-xl text-slate-400 hover:text-slate-700" aria-label="Close summary">×</button>
+            </div>
+            <div className="mt-4 rounded-xl border border-teal-100 bg-teal-50/60 p-4">
+              <p className="text-sm font-semibold text-slate-700">Other</p>
+              <p className="mt-1 text-xs text-slate-500">{customerMessages.length} customer messages</p>
+            </div>
+            <div className="mt-4 max-h-80 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-600">Customer replies</h3>
+              {customerMessages.map((message) => (
+                <div key={message.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="whitespace-pre-wrap text-xs leading-5 text-slate-700">{message.content}</p>
+                  <p className="mt-1 text-[10px] text-slate-400">{new Date(message.createdAt).toLocaleString()}</p>
+                </div>
+              ))}
+              {customerMessages.length === 0 && <p className="py-6 text-center text-xs text-slate-400">No customer replies recorded.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {qrModalOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl max-w-sm w-full p-4 shadow-xl border border-slate-200 text-xs">

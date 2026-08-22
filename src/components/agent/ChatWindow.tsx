@@ -434,11 +434,10 @@ export const ChatWindow: React.FC = () => {
         </div>
 
         {/* Bottom Action Bar matching screenshot: Tag selector + Sentiment dropdown + Red "End" button */}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 pt-1">
+        <div className="flex flex-wrap items-end gap-2 pt-1">
           {/* Left: Tag selector box matching screenshot: SPAM_Q » Other » und... ✖ */}
-          <div className="flex w-[230px] shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2">
-            <span className="text-[10px] font-bold uppercase text-slate-400">Category</span>
-            <div className="flex min-w-0 max-w-[150px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
+          <div className="flex min-w-0 flex-[0_1_230px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
               <span className="min-w-0 truncate">
                 {activeTag?.name?.includes('Other') ? 'Other' : activeTag?.name || 'Other'}
               </span>
@@ -451,7 +450,7 @@ export const ChatWindow: React.FC = () => {
             </div>
 
             {/* Dropdown toggle arrow */}
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setTagDropdownOpen(!tagDropdownOpen)}
                 className="rounded border border-slate-300 p-1.5 text-slate-500 hover:bg-slate-100"
@@ -480,8 +479,7 @@ export const ChatWindow: React.FC = () => {
           </div>
 
           {/* Middle: Sentiment Dropdown matching screenshot: Negative */}
-          <div className="flex flex-col">
-            <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wide text-slate-400">Sentiment</label>
+          <div className="flex min-w-0 flex-[0_1_225px] flex-col">
             <select
               value={selectedSentiment}
               onChange={(e) => {
@@ -489,7 +487,7 @@ export const ChatWindow: React.FC = () => {
                 setSelectedSentiment(s);
                 updateConversationSentiment(selectedConversation.id, s);
               }}
-              className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 focus:border-teal-400 focus:outline-none"
+              className="h-8 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 focus:border-teal-400 focus:outline-none"
             >
               <option value="negative">Negative</option>
               <option value="neutral">Neutral</option>
@@ -500,19 +498,9 @@ export const ChatWindow: React.FC = () => {
           {/* Right: Solid Red "End" button matching screenshot */}
           <button
             onClick={handleEndTicket}
-            className="h-8 rounded-lg bg-[#E11D48] px-5 text-xs font-bold text-white shadow-2xs transition-colors hover:bg-rose-700 cursor-pointer"
+            className="h-8 min-w-[120px] flex-1 rounded-lg bg-[#E11D48] px-5 text-xs font-bold text-white shadow-2xs transition-colors hover:bg-rose-700 cursor-pointer"
           >
             End
-          </button>
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!inputText.trim()}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Send reply"
-          >
-            <Send className="h-3.5 w-3.5" />
-            Send
           </button>
         </div>
       </div>

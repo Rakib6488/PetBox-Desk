@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Camera, Send, MessageSquare, Shield, LogOut } from 'lucide-react';
+import { Camera, Send, Shield, FileBarChart } from 'lucide-react';
 
 export const SidebarNav: React.FC = () => {
   const { currentRoute, navigateTo, currentUser, logout } = useApp();
@@ -23,6 +23,14 @@ export const SidebarNav: React.FC = () => {
           title={currentUser.role === 'admin' ? 'Admin Dashboard' : 'Agent Inbox'}
         >
           <Camera className="w-4 h-4 text-slate-600 stroke-[1.8]" />
+        </button>
+        <button
+          onClick={() => navigateTo('/bi/summary')}
+          className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/bi/summary' ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-violet-50 hover:text-violet-700'}`}
+          title="Complete Summary"
+          aria-label="Complete Summary"
+        >
+          <FileBarChart className="w-4 h-4" />
         </button>
       </div>
 

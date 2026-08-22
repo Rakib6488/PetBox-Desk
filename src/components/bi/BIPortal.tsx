@@ -40,10 +40,16 @@ export const BIPortal: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentRoute === '/bi/summary' && selectedConversation) {
-      setSelectedSummary(selectedConversation);
+    if (currentRoute === '/bi/summary') {
+      const summaryConversation = selectedConversation || conversations.find((conversation) => conversation.summary) || null;
+      if (summaryConversation) setSelectedSummary(summaryConversation);
     }
-  }, [currentRoute, selectedConversation?.id]);
+  }, [currentRoute, selectedConversation?.id, conversations]);
+
+  useEffect(() => {
+    const routeTab = tabItems.find((item) => item.route === currentRoute);
+    if (routeTab) setActiveTab(routeTab.id);
+  }, [currentRoute]);
 
   const filtered = useMemo(() => {
     const days = dateRange === 'today' ? 1 : dateRange === 'last_30_days' ? 30 : 7;
