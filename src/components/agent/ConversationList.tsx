@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Conversation, ChannelType } from '../../types';
 import {
@@ -12,6 +12,9 @@ import {
   X,
   Check,
   MessageCircle,
+  Facebook,
+  Mail,
+  MessageSquare,
 } from 'lucide-react';
 
 export const ConversationList: React.FC = () => {
@@ -27,6 +30,12 @@ export const ConversationList: React.FC = () => {
   } = useApp();
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'assigned' | 'bookmarked'>('all');
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const filteredConversations = conversations.filter((c) => {
     if (activeFilter === 'bookmarked') return c.isBookmarked && c.status !== 'closed';
@@ -35,12 +44,12 @@ export const ConversationList: React.FC = () => {
   });
 
   const getSlaLabel = (conversation: Conversation) => {
-    const elapsed = Math.max(0, Date.now() - new Date(conversation.lastMessageAt).getTime());
-    const remaining = Math.max(0, 5 * 60 * 1000 - elapsed);
-    if (remaining === 0) return 'SLA due';
-    const minutes = Math.floor(remaining / 60000).toString().padStart(2, '0');
-    const seconds = Math.floor((remaining % 60000) / 1000).toString().padStart(2, '0');
-    return `${minutes}:${seconds}`;
+    const startedAt = conversation.landedAt || conversation.lastMessageAt;
+    const elapsed = Math.max(0, now - new Date(startedAt).getTime());
+    const hours = Math.floor(elapsed / 3600000);
+    const minutes = Math.floor((elapsed % 3600000) / 60000).toString().padStart(2, '0');
+    const seconds = Math.floor((elapsed % 60000) / 1000).toString().padStart(2, '0');
+    return hours > 0 ? `${hours}:${minutes}:${seconds}` : `${minutes}:${seconds}`;
   };
 
   return (
@@ -158,7 +167,7 @@ export const ConversationList: React.FC = () => {
 
                   {/* Channel badge */}
                   <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-bold border border-white shadow-2xs ${conv.channelType === 'facebook' ? 'bg-[#1877F2]' : conv.channelType === 'email' ? 'bg-sky-600' : conv.channelType === 'whatsapp' ? 'bg-emerald-600' : 'bg-orange-500'}`}>
-                    {conv.channelType === 'facebook' ? 'f' : conv.channelType === 'email' ? '@' : '•'}
+                    {conv.channelType === 'facebook' ? <Facebook className="h-2.5 w-2.5" /> : conv.channelType === 'email' ? <Mail className="h-2.5 w-2.5" /> : conv.channelType === 'whatsapp' ? <MessageCircle className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
                   </div>
                 </div>
 
@@ -169,9 +178,7 @@ export const ConversationList: React.FC = () => {
                       {conv.contact.name}
                     </h4>
                     {/* Red timer 04:29 matching screenshot */}
-                    <span className="text-[11px] font-mono font-semibold text-[#E11D48] shrink-0 ml-1">
-                      {getSlaLabel(conv)}
-                    </span>
+                    {!conv.firstResponseAt && <span className="text-[11px] font-mono font-semibold text-[#E11D48] shrink-0 ml-1">{getSlaLabel(conv)}</span>}
                   </div>
 
                   {/* Last message with paperclip icon matching screenshot */}

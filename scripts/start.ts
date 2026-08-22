@@ -15,6 +15,7 @@ if (!dbPool) {
 const schema = await fs.readFile(path.resolve('database/schema.sql'), 'utf8');
 await dbPool.query(schema);
 console.log('PostgreSQL schema checked.');
+await import('./bootstrap-users.ts');
 
 process.env.NODE_ENV = 'production';
 await import('../server.ts');

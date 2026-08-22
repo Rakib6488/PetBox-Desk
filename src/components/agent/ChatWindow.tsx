@@ -21,6 +21,7 @@ import {
   Globe,
   Mail,
   MessageCircle,
+  ExternalLink,
 } from 'lucide-react';
 
 export const ChatWindow: React.FC = () => {
@@ -36,13 +37,17 @@ export const ChatWindow: React.FC = () => {
     currentUser,
     pauseConversation,
     resumeConversation,
+    quickResponses,
+    draftMessage,
+    setDraftMessage,
   } = useApp();
 
-  const [inputText, setInputText] = useState('');
   const [selectedSentiment, setSelectedSentiment] = useState<SentimentType>('negative');
   const [activeTag, setActiveTag] = useState<Tag | null>(null);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+  const [tagSelectionError, setTagSelectionError] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
 
@@ -53,15 +58,14 @@ export const ChatWindow: React.FC = () => {
 
   // Sync conversation tags & sentiment
   useEffect(() => {
+    setActiveTag(null);
+    setTagSelectionError('');
     if (selectedConversation) {
       if (selectedConversation.sentiment) {
         setSelectedSentiment(selectedConversation.sentiment);
       }
-      if (selectedConversation.tags && selectedConversation.tags.length > 0) {
-        setActiveTag(selectedConversation.tags[0]);
-      }
     }
-  }, [selectedConversation?.id, tags]);
+  }, [selectedConversation?.id]);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -77,10 +81,15 @@ export const ChatWindow: React.FC = () => {
   }
 
   const handleSend = () => {
-    if (!inputText.trim()) return;
-    const text = inputText.trim();
+    if (!draftMessage.trim()) return;
+    if (!activeTag) {
+      setTagSelectionError('Select a category before sending a reply.');
+      setTagDropdownOpen(true);
+      return;
+    }
+    const text = draftMessage.trim();
     sendMessage(text);
-    setInputText('');
+    setDraftMessage('');
 
     if (textareaRef.current) {
       textareaRef.current.focus();
@@ -121,7 +130,9 @@ export const ChatWindow: React.FC = () => {
       recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        sendMessage('Voice message', 'audio', [{ url: URL.createObjectURL(blob), name: 'voice-message.webm', size: `${Math.max(1, Math.round(blob.size / 1024))} KB`, type: blob.type }]);
+        const reader = new FileReader();
+        reader.onload = () => sendMessage('Voice message', 'audio', [{ url: String(reader.result || ''), name: 'voice-message.webm', size: `${Math.max(1, Math.round(blob.size / 1024))} KB`, type: blob.type }]);
+        reader.readAsDataURL(blob);
         stream.getTracks().forEach((track) => track.stop());
         voiceRecorderRef.current = null;
         setIsRecordingVoice(false);
@@ -154,13 +165,24 @@ export const ChatWindow: React.FC = () => {
             {selectedConversation.pageName || channelMeta.label}
           </span>
           <span className="text-[10px] text-slate-400">{channelMeta.label}</span>
+          {selectedConversation.channelType === 'facebook' && (
+            <button
+              type="button"
+              onClick={() => window.open('https://business.facebook.com/latest/inbox/all', '_blank', 'noopener,noreferrer')}
+              className="ml-1 inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
+              title="Open Facebook Page Inbox"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open in Facebook
+            </button>
+          )}
         </div>
 
         {/* Right: Refresh icon in circle + "A" Agent Avatar in circle matching screenshot */}
         <div className="flex items-center gap-2">
           {/* Refresh icon */}
           <button
-            onClick={() => setInputText('')}
+            onClick={() => setDraftMessage('')}
             className="w-6 h-6 rounded-full border border-slate-200 hover:bg-slate-100 text-slate-500 flex items-center justify-center transition-colors"
             title="Clear message draft"
           >
@@ -293,7 +315,7 @@ export const ChatWindow: React.FC = () => {
                     <button
                       key={emoji}
                       onClick={() => {
-                        setInputText((prev) => prev + emoji);
+                        setDraftMessage((prev) => prev + emoji);
                         setEmojiPickerOpen(false);
                       }}
                       className="p-1 hover:bg-slate-100 rounded"
@@ -341,11 +363,9 @@ export const ChatWindow: React.FC = () => {
                   const attachment: MessageAttachment = { url, name: file.name, size: `${Math.max(1, Math.round(file.size / 1024))} KB`, type: file.type || 'application/octet-stream' };
                   sendMessage(`Attached file: ${file.name}`, isImage ? 'image' : 'file', [attachment]);
                 };
-                if (isImage) {
-                  const reader = new FileReader();
-                  reader.onload = () => submitAttachment(String(reader.result || ''));
-                  reader.readAsDataURL(file);
-                } else submitAttachment('');
+                const reader = new FileReader();
+                reader.onload = () => submitAttachment(String(reader.result || ''));
+                reader.readAsDataURL(file);
                 event.target.value = '';
               }}
             />
@@ -353,12 +373,18 @@ export const ChatWindow: React.FC = () => {
             {/* 4. Notepad / Template */}
             <button
               onClick={() => {
-                setInputText(
+                setDraftMessage(
                   'প্রিয় গ্রাহক, আপনার সমস্যার বিবরণটি আমাদের জানান যাতে আমরা যাচাই করে জানাতে পারি।'
                 );
               }}
               className="hover:text-slate-700 transition-colors"
-              title="Template"
+              onClickCapture={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const response = quickResponses[0];
+                if (response) setDraftMessage(response.content);
+              }}
+              title="Insert saved reply"
             >
               <FileText className="w-3.5 h-3.5" />
             </button>
@@ -366,7 +392,7 @@ export const ChatWindow: React.FC = () => {
             {/* 5. Cart */}
             <button
               onClick={() => {
-                setInputText((prev) => prev + ' [Transaction Order #PETBOX-9821]');
+                setDraftMessage((prev) => prev + ' [Transaction Order #PETBOX-9821]');
               }}
               className="hidden"
               title="Cart / Order"
@@ -377,7 +403,7 @@ export const ChatWindow: React.FC = () => {
             {/* 6. Bookmark */}
             <button
               onClick={() => {
-                setInputText((prev) => prev + ' *167#');
+                setDraftMessage((prev) => prev + ' *167#');
               }}
               className="hidden"
               title="Bookmark / Code"
@@ -387,7 +413,7 @@ export const ChatWindow: React.FC = () => {
 
             {/* 7. Info */}
             <button
-              onClick={() => setInputText((prev) => `${prev}${prev ? '\n\n' : ''}Customer details: ${selectedConversation.contact.email || 'No email on file'} | ${selectedConversation.contact.phone || 'No phone on file'}`)}
+              onClick={() => setDraftMessage((prev) => `${prev}${prev ? '\n\n' : ''}Customer details: ${selectedConversation.contact.email || 'No email on file'} | ${selectedConversation.contact.phone || 'No phone on file'}`)}
               className="hover:text-slate-700 transition-colors"
               title="Info"
             >
@@ -415,8 +441,8 @@ export const ChatWindow: React.FC = () => {
           <textarea
             ref={textareaRef}
             rows={2}
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            value={draftMessage}
+            onChange={(e) => setDraftMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Write your reply here..."
             className="min-h-[58px] w-full rounded-lg border border-slate-200 bg-white p-3 pr-10 text-xs text-slate-800 placeholder-slate-400 focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100 resize-none font-normal"
@@ -424,9 +450,9 @@ export const ChatWindow: React.FC = () => {
 
           <button
             onClick={handleSend}
-            disabled={!inputText.trim()}
+            disabled={!draftMessage.trim()}
             className={`absolute right-2 bottom-2.5 p-1 rounded transition-all ${
-              inputText.trim()
+              draftMessage.trim()
                 ? 'bg-teal-700 text-white hover:bg-teal-800'
                 : 'text-slate-300 cursor-not-allowed'
             }`}
@@ -442,14 +468,12 @@ export const ChatWindow: React.FC = () => {
           <div className="flex min-w-0 flex-[0_1_230px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-1">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
               <span className="min-w-0 truncate">
-                {activeTag?.name?.includes('Other') ? 'Other' : activeTag?.name || 'Other'}
+                {activeTag?.name || 'Select category'}
               </span>
-              <button
-                onClick={() => setActiveTag(null)}
+              {activeTag && <button
+                onClick={() => { setActiveTag(null); setTagSelectionError('Category is required before replying.'); }}
                 className="text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-3 h-3" />
-              </button>
+              ><X className="w-3 h-3" /></button>}
             </div>
 
             {/* Dropdown toggle arrow */}
@@ -462,12 +486,13 @@ export const ChatWindow: React.FC = () => {
               </button>
 
               {tagDropdownOpen && (
-                <div className="absolute bottom-7 left-0 w-52 bg-white border border-slate-200 rounded-md shadow-xl py-1 z-50 text-xs max-h-48 overflow-y-auto">
+                <div className="absolute bottom-9 left-0 z-50 w-60 max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-xl overscroll-contain">
                   {tags.map((t) => (
                     <button
                       key={t.id}
                       onClick={() => {
                         setActiveTag(t);
+                        setTagSelectionError('');
                         addTagToConversation(selectedConversation.id, t);
                         setTagDropdownOpen(false);
                       }}
@@ -506,6 +531,7 @@ export const ChatWindow: React.FC = () => {
             End
           </button>
         </div>
+        {tagSelectionError && <p className="px-1 text-[10px] font-semibold text-rose-600">{tagSelectionError}</p>}
       </div>
 
       {/* Lightbox for attachments */}

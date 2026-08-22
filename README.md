@@ -34,6 +34,8 @@ The main protected endpoints are `/api/auth/*`, `/api/state`, `/api/conversation
 
 The integrated root server is protected by the normal session cookie. The standalone WhatsApp server is intended only for trusted internal callers and requires `WHATSAPP_API_KEY`; do not expose it directly to browsers or the public internet.
 
+On production startup, optional `ADMIN_*`, `SUPERVISOR_*`, `AGENT_*`, and `BI_*` environment variables automatically create or update the four workspace users. Keep the passwords in Render Environment Variables only; do not commit `.env`.
+
 ## Project structure
 
 ```text

@@ -3,6 +3,7 @@ export type AppRoute =
   | '/agent/inbox'
   | '/agent/assigned'
   | '/agent/bookmarked'
+  | '/agent/summary'
   | '/agent/team'
   | '/admin/dashboard'
   | '/admin/agents'
@@ -189,6 +190,9 @@ export interface Conversation {
   sentiment?: SentimentType;
   tags: Tag[];
   lastMessageAt: string;
+  landedAt?: string;
+  slaDueAt?: string;
+  firstResponseAt?: string;
   lastMessageText: string;
   unreadCount: number;
   isBookmarked?: boolean;
@@ -210,6 +214,7 @@ export interface QuickResponse {
   content: string;
   category: QuickResponseCategory;
   createdBy: string;
+  isFavorite?: boolean;
   shortcutKey?: string; // e.g. /selfpin
   usageCount?: number;
 }

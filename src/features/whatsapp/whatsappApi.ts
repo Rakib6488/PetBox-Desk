@@ -17,5 +17,6 @@ export const whatsappApi = {
   connect: () => request<WhatsAppStatus & { ok: boolean }>('/api/whatsapp/connect', { method: 'POST' }),
   disconnect: () => request<{ ok: boolean }>('/api/whatsapp/disconnect', { method: 'POST' }),
   send: (jid: string, text: string) => request<{ ok: boolean }>('/api/whatsapp/send', { method: 'POST', body: JSON.stringify({ jid, text }) }),
+  sendVoice: (jid: string, audio: string, mimetype = 'audio/webm') => request<{ ok: boolean }>('/api/whatsapp/send-voice', { method: 'POST', body: JSON.stringify({ jid, audio, mimetype }) }),
   socket: (): Socket => io(`${backendUrl}/whatsapp`, { transports: ['websocket', 'polling'], withCredentials: true }),
 };

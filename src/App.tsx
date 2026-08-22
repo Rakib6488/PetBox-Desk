@@ -9,6 +9,7 @@ import { RightPanel } from './components/agent/RightPanel';
 import { AdminPortal } from './components/admin/AdminPortal';
 import { TeamAgentsView } from './components/agent/TeamAgentsView';
 import { BIPortal } from './components/bi/BIPortal';
+import { AgentSummaryView } from './components/agent/AgentSummaryView';
 
 const MainLayout: React.FC = () => {
   const { currentRoute, isLoggedIn, currentUser, navigateTo } = useApp();
@@ -40,7 +41,9 @@ const MainLayout: React.FC = () => {
             <SidebarNav />
 
             {/* Dynamic Center/Right Area based on Route Hierarchy */}
-            {currentRoute === '/agent/team' ? (
+            {currentRoute === '/agent/summary' ? (
+              <AgentSummaryView />
+            ) : currentRoute === '/agent/team' ? (
               <TeamAgentsView />
             ) : currentRoute.startsWith('/bi/') ? (
               <BIPortal />

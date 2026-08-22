@@ -19,7 +19,7 @@ emailRouter.post('/test-connection', async (_req, res) => {
   if (imap.host && imap.auth.user && imap.auth.pass) {
     const client = new ImapFlow(imap);
     try { await client.connect(); const box = await client.status('INBOX', { messages: true, unseen: true }); await client.logout(); result.imap = { success: true, message: `IMAP connected. ${box.messages || 0} messages, ${box.unseen || 0} unseen.` }; }
-    catch (error: any) { result.imap.message = error?.message || 'IMAP connection failed.'; }
+    catch (error: any) { try { await client.logout(); } catch { /* already disconnected */ } result.imap.message = error?.message || 'IMAP connection failed.'; }
   } else result.imap.message = 'IMAP is not configured.';
   res.json(result);
 });
@@ -36,7 +36,7 @@ emailRouter.post('/send', async (req, res) => {
     });
     await transporter.verify();
     const info = await transporter.sendMail({
-      from: smtp.auth.user,
+      from: smtp.from,
       to,
       subject,
       text: body,
@@ -50,7 +50,8 @@ emailRouter.post('/send', async (req, res) => {
 
 emailRouter.get('/fetch', async (req, res) => {
   const cfg = imapConfig();
-  const limit = Math.min(Math.max(Number(req.query.limit || 30), 1), 100);
+  const requestedLimit = Number(req.query.limit || 30);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100) : 30;
   if (!cfg.host || !cfg.auth.user || !cfg.auth.pass) return res.json({ success: false, configured: false, emails: [], message: 'IMAP is not configured.' });
   const client = new ImapFlow(cfg);
   try {
@@ -66,7 +67,8 @@ emailRouter.get('/fetch', async (req, res) => {
           const parsed = await simpleParser(message.source);
           const from = parsed.from?.value?.[0];
           const receivedAt = message.internalDate instanceof Date ? message.internalDate.toISOString() : message.internalDate || new Date().toISOString();
-          emails.push({ id: `imap_${message.uid || message.seq}`, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body: parsed.text || '', preview: (parsed.text || '').slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '' });
+          const body = parsed.text || (typeof parsed.html === 'string' ? parsed.html.replace(/<[^>]+>/g, ' ') : '');
+          emails.push({ id: `imap_${message.uid || message.seq}`, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body, preview: body.slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '' });
         }
       }
     } finally { lock.release(); await client.logout(); }

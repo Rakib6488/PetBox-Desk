@@ -5,6 +5,7 @@ import {
   getWhatsAppStatus,
   logoutWhatsAppConnection,
   sendWhatsAppMessage,
+  sendWhatsAppVoice,
   startWhatsAppConnection,
 } from './connection.js';
 
@@ -55,6 +56,22 @@ export function createWhatsAppRouter(io: SocketIOServer) {
       res.json({ ok: true });
     } catch (error) {
       res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'Unable to send WhatsApp message.' });
+    }
+  });
+
+  router.post('/send-voice', async (req, res) => {
+    const jid = typeof req.body?.jid === 'string' ? req.body.jid : '';
+    const audio = typeof req.body?.audio === 'string' ? req.body.audio : '';
+    const mimetype = typeof req.body?.mimetype === 'string' ? req.body.mimetype : 'audio/webm';
+    if (!jid.trim() || !audio.startsWith('data:audio/')) {
+      res.status(400).json({ ok: false, error: 'jid and valid audio are required.' });
+      return;
+    }
+    try {
+      await sendWhatsAppVoice(jid, audio, mimetype);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'Unable to send WhatsApp voice message.' });
     }
   });
 

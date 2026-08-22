@@ -47,7 +47,7 @@ export type AdminSubTab =
   | 'settings';
 
 function createConversationSummary(conversation: Conversation, customerMessages: Message[], latestMessage?: Message): ConversationSummary {
-  const allCustomerMessages = latestMessage && !customerMessages.some((message) => message.id === latestMessage.id)
+  const allCustomerMessages = latestMessage?.senderType === 'contact' && !customerMessages.some((message) => message.id === latestMessage.id)
     ? [...customerMessages, latestMessage]
     : customerMessages;
   const latestCustomerMessage = [...allCustomerMessages].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
@@ -99,6 +99,8 @@ interface AppContextType {
     messageType?: 'text' | 'image' | 'file' | 'audio' | 'product_card',
     attachments?: any[]
   ) => void;
+  draftMessage: string;
+  setDraftMessage: React.Dispatch<React.SetStateAction<string>>;
   simulateIncomingMessage: (
     conversationId: string,
     content: string,
@@ -195,6 +197,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [draftMessage, setDraftMessage] = useState('');
 
   const [slaRules, setSlaRules] = useState<SLARule[]>([]);
 
@@ -272,6 +275,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Helper to land a query into the active inbox
   const landQueryItem = (item: WaitingQuery): Conversation => {
+    const landedAt = new Date();
+    const landedAtIso = landedAt.toISOString();
     const contactId = `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const convId = `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const convUid =
@@ -305,10 +310,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       status: 'open',
       sentiment: 'neutral',
       tags: tags.length ? [tags[0]] : [],
-      lastMessageAt: new Date().toISOString(),
+      lastMessageAt: landedAtIso,
+      landedAt: landedAtIso,
+      slaDueAt: new Date(landedAt.getTime() + 5 * 60 * 1000).toISOString(),
       lastMessageText: item.message,
       unreadCount: 1,
-      createdAt: new Date().toISOString(),
+      createdAt: landedAtIso,
       priority: item.priority || 'medium',
     };
 
@@ -527,9 +534,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (Array.isArray(data.quickResponses)) setQuickResponses(data.quickResponses);
           if (Array.isArray(data.conversations)) {
             const sourceMessages = Array.isArray(data.messages) ? data.messages as Message[] : [];
-            setConversations(data.conversations.map((conversation: Conversation) => conversation.summary
-              ? conversation
-              : { ...conversation, summary: createConversationSummary(conversation, sourceMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact')) }));
+            setConversations(data.conversations.map((conversation: Conversation) => {
+              if (conversation.summary) return conversation;
+              const customerMessages = sourceMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
+              return customerMessages.length ? { ...conversation, summary: createConversationSummary(conversation, customerMessages) } : conversation;
+            }));
           }
           if (Array.isArray(data.messages)) setMessages(data.messages);
           if (Array.isArray(data.slaRules)) setSlaRules(data.slaRules);
@@ -656,6 +665,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       isRead: true,
       metadata: { deliveryStatus: isExternalChannel ? 'pending' : 'sent' },
     };
+    const isFirstResponse = !messages.some((message) => message.conversationId === selectedConversationId && message.senderType === 'agent');
 
     setMessages((prev) => [...prev, newMessage]);
     const updateDeliveryStatus = (deliveryStatus: 'sent' | 'failed') => setMessages((prev) => prev.map((message) => message.id === newMessage.id ? { ...message, metadata: { ...message.metadata, deliveryStatus } } : message));
@@ -694,7 +704,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updateDeliveryStatus('failed');
       addAuditLog('FACEBOOK_MESSAGE_BLOCKED', 'Conversation', selectedConversationId, 'Facebook reply blocked because the customer PSID is missing.');
     } else if (activeConversation?.channelType === 'whatsapp' && activeConversation.contact.whatsappJid) {
-      void withDeliveryTimeout(whatsappApi.send(activeConversation.contact.whatsappJid, content))
+      const voiceAttachment = messageType === 'audio' ? attachments?.find((attachment) => typeof attachment?.url === 'string' && attachment.url.startsWith('data:audio/')) : undefined;
+      const delivery = voiceAttachment?.url
+        ? whatsappApi.sendVoice(activeConversation.contact.whatsappJid, voiceAttachment.url, voiceAttachment.type || 'audio/webm')
+        : whatsappApi.send(activeConversation.contact.whatsappJid, content);
+      void withDeliveryTimeout(delivery)
         .then(() => persistMessage())
         .then(() => { updateDeliveryStatus('sent'); addAuditLog('WHATSAPP_MESSAGE_SENT', 'Conversation', selectedConversationId, `WhatsApp message accepted for ${activeConversation.contact.name}`); })
         .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('WHATSAPP_MESSAGE_FAILED', 'Conversation', selectedConversationId, `WhatsApp message failed: ${error?.message || 'WhatsApp delivery failed'}`); });
@@ -711,6 +725,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             ...conv,
             lastMessageAt: newMessage.createdAt,
             lastMessageText: content,
+            ...(isFirstResponse ? { firstResponseAt: newMessage.createdAt } : {}),
             status: conv.status === 'closed' ? 'open' : conv.status,
             unreadCount: 0,
           };
@@ -1461,6 +1476,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         messages,
         conversationMessages,
         sendMessage,
+        draftMessage,
+        setDraftMessage,
         simulateIncomingMessage,
         assignConversation,
         toggleBookmark,

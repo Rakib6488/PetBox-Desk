@@ -153,6 +153,15 @@ export async function sendWhatsAppMessage(jid: string, text: string): Promise<vo
   await socket.sendMessage(jid, { text });
 }
 
+export async function sendWhatsAppVoice(jid: string, audioDataUrl: string, mimetype = 'audio/webm'): Promise<void> {
+  if (!socket?.user) throw new Error('WhatsApp is not connected.');
+  if (!jid.trim() || !audioDataUrl.startsWith('data:audio/')) throw new Error('WhatsApp JID and valid audio data are required.');
+  const encoded = audioDataUrl.slice(audioDataUrl.indexOf(',') + 1);
+  const audio = Buffer.from(encoded, 'base64');
+  if (!audio.length || audio.length > 8 * 1024 * 1024) throw new Error('Voice message must be between 1 byte and 8 MB.');
+  await socket.sendMessage(jid, { audio, mimetype, ptt: true });
+}
+
 export async function logoutWhatsAppConnection(): Promise<void> {
   deliberateLogout = true;
   if (socket) {

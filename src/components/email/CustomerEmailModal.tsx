@@ -169,7 +169,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
       }
     } catch (err: any) {
       console.warn('IMAP sync note:', err.message);
-      showToast('info', 'Live IMAP checked. Using existing mailbox data.');
+      showToast('error', `IMAP sync failed: ${err?.message || 'Unable to connect to the mailbox.'}`);
     } finally {
       setIsSyncingImap(false);
     }
@@ -191,6 +191,8 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
             : `Re: ${selectedEmail.subject}`,
           body: content,
           ticketNumber: selectedEmail.ticketNumber,
+          inReplyTo: selectedEmail.messageId,
+          references: [selectedEmail.references, selectedEmail.messageId].filter(Boolean).join(' '),
       });
       if (data.success) {
         replyToCustomerEmail(selectedEmail.id, content);
