@@ -93,7 +93,7 @@ export const RightPanel: React.FC = () => {
     <div className="w-72 sm:w-80 border-l border-slate-200 bg-white flex flex-col h-full shrink-0 select-none overflow-hidden text-xs">
       {/* Contact Profile Header matching screenshot */}
       <div className="p-3 border-b border-slate-200 flex flex-col gap-2">
-        {/* Name & Avatar: M in circle + Milon Ahmed */}
+        {/* Customer name and avatar */}
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-full bg-slate-300 flex items-center justify-center font-bold text-slate-700 text-xs shrink-0">
             {contact.avatar ? (
