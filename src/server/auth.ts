@@ -65,10 +65,22 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
+export function requireRole(...allowedRoles: string[]) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const role = res.locals.user?.role;
+    if (!allowedRoles.includes(role)) {
+      return res.status(403).json({ error: role === 'bi' ? 'BI accounts have read-only access.' : 'You do not have permission to perform this action.' });
+    }
+    next();
+  };
+}
+
 export function requireSameOrigin(req: Request, res: Response, next: NextFunction) {
   const origin = req.headers.origin;
-  const configuredOrigin = process.env.CLIENT_ORIGIN;
-  if (origin && configuredOrigin && origin !== configuredOrigin) {
+  const configuredOrigins = (process.env.CLIENT_ORIGIN || '').split(',').map((value) => value.trim()).filter(Boolean);
+  const requestOrigin = `${req.protocol}://${req.get('host')}`;
+  const allowed = !origin || configuredOrigins.includes(origin) || origin === requestOrigin;
+  if (!allowed) {
     return res.status(403).json({ error: 'Cross-origin request blocked.' });
   }
   next();

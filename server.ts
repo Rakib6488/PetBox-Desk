@@ -18,10 +18,16 @@ import { createWhatsAppRouter } from './server/src/whatsapp/routes';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 const httpServer = createHttpServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.CLIENT_ORIGIN || 'http://localhost:3002',
+    origin: (origin, callback) => {
+      const configuredOrigins = (process.env.CLIENT_ORIGIN || '').split(',').map((value) => value.trim()).filter(Boolean);
+      const localOrigins = [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`, 'http://localhost:3002', 'http://localhost:5173'];
+      if (!origin || [...configuredOrigins, ...localOrigins].includes(origin)) return callback(null, true);
+      callback(new Error('Socket origin not allowed'));
+    },
     credentials: true,
   },
 });

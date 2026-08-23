@@ -1,16 +1,18 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Inbox, Send, Shield, CornerUpLeft, List } from 'lucide-react';
+import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart } from 'lucide-react';
 
 export const SidebarNav: React.FC = () => {
-  const { currentRoute, navigateTo, currentUser, logout } = useApp();
+  const { currentRoute, navigateTo, currentUser } = useApp();
 
-  if (currentUser.role === 'admin' || currentUser.role === 'bi') return null;
+  if (currentUser.role === 'bi') return null;
+  const isAdmin = currentUser.role === 'admin';
+  const isSummaryRoute = currentRoute === '/agent/summary' || currentRoute.startsWith('/admin/summary/');
 
   return (
-    <aside className="w-10 border-r border-slate-200 bg-white flex flex-col items-center py-2.5 justify-between select-none shrink-0 z-10">
+    <aside className={`${isAdmin ? 'w-52 items-stretch px-2' : 'w-10 items-center'} border-r border-slate-200 bg-white flex flex-col py-2.5 justify-between select-none shrink-0 z-10`}>
       {/* Top Camera / Snapshot icon matching screenshot */}
-      <div className="flex flex-col items-center gap-2">
+      <div className={`flex flex-col gap-2 ${isAdmin ? 'items-stretch' : 'items-center'}`}>
         <button
           type="button"
           onClick={() => {
@@ -20,13 +22,14 @@ export const SidebarNav: React.FC = () => {
               navigateTo('/agent/inbox');
             }
           }}
-          className={`w-7 h-7 rounded border flex items-center justify-center transition-colors shadow-2xs ${currentRoute === '/agent/inbox' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+          className={`${isAdmin ? 'w-full justify-start gap-2 px-3' : 'w-7 justify-center'} h-7 rounded border flex items-center transition-colors shadow-2xs ${currentRoute === (isAdmin ? '/admin/dashboard' : '/agent/inbox') ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
           title={currentUser.role === 'admin' ? 'Admin Dashboard' : 'Agent Inbox'}
           aria-label={currentUser.role === 'admin' ? 'Admin Dashboard' : 'Agent Inbox'}
         >
           <Inbox className="w-4 h-4 text-slate-600 stroke-[1.8]" />
+          {isAdmin && <span className="text-xs font-semibold">Dashboard</span>}
         </button>
-        <button
+        {!isAdmin && <button
           type="button"
           onClick={() => navigateTo('/agent/assigned')}
           className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/assigned' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-teal-700'}`}
@@ -34,8 +37,8 @@ export const SidebarNav: React.FC = () => {
           aria-label="Assigned conversations"
         >
           <CornerUpLeft className="w-4 h-4" />
-        </button>
-        <button
+        </button>}
+        {!isAdmin && <button
           type="button"
           onClick={() => navigateTo('/agent/summary')}
           className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/summary' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}
@@ -43,7 +46,25 @@ export const SidebarNav: React.FC = () => {
           aria-label="Complete Summary"
         >
           <List className="w-4 h-4" />
-        </button>
+        </button>}
+        {isAdmin ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-1">
+            <div className={`flex items-center justify-between rounded px-2 py-1.5 text-xs font-bold ${isSummaryRoute ? 'text-teal-700' : 'text-slate-700'}`}>
+              <span className="flex items-center gap-2"><FileBarChart className="h-4 w-4" /> Summary</span>
+              <ChevronDown className="h-3.5 w-3.5" />
+            </div>
+            <button type="button" onClick={() => navigateTo('/admin/summary/all')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/all' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><List className="h-3.5 w-3.5" /> All summaries</button>
+            <button type="button" onClick={() => navigateTo('/admin/summary/agents')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/agents' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><Users className="h-3.5 w-3.5" /> Agent-wise</button>
+          </div>
+        ) : <button
+          type="button"
+          onClick={() => navigateTo('/agent/summary')}
+          className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/summary' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}
+          title="Complete Summary"
+          aria-label="Complete Summary"
+        >
+          <List className="w-4 h-4" />
+        </button>}
       </div>
 
       {/* Bottom Send / Plane icon matching screenshot */}
@@ -51,16 +72,12 @@ export const SidebarNav: React.FC = () => {
         <button
           type="button"
           onClick={() => {
-            if (currentUser.role === 'admin') {
-              navigateTo('/admin/dashboard');
-            } else {
-              navigateTo('/agent/inbox');
-            }
+            navigateTo(isAdmin ? '/admin/dashboard' : '/agent/inbox');
           }}
           className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors"
           title={currentUser.role === 'admin' ? 'Admin Dashboard' : 'Agent Inbox'}
         >
-          {currentUser.role === 'admin' ? (
+          {isAdmin ? (
             <Shield className="w-3.5 h-3.5 text-slate-600" />
           ) : (
             <Send className="w-3.5 h-3.5 text-slate-600 rotate-45" />

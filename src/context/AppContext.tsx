@@ -13,7 +13,6 @@ import {
   SentimentType,
   ChannelType,
   ConversationStatus,
-  ReportFilter,
   AppRoute,
   WaitingQuery,
   CustomerEmail,
@@ -163,6 +162,7 @@ interface AppContextType {
   soundEnabled: boolean;
   setSoundEnabled: (v: boolean) => void;
   notificationCount: number;
+  workspaceNotice: string;
 
   // Waiting Queue & Landing Control
   waitingQueue: WaitingQuery[];
@@ -186,7 +186,6 @@ interface AppContextType {
   mergeFetchedEmails: (newEmails: CustomerEmail[]) => void;
 
   // Helpers
-  resetAllData: () => void;
   createLiveChatVisitorConversation: (visitorName: string, initialMsg: string, email?: string) => string;
 }
 
@@ -233,55 +232,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [workspaceNotice, setWorkspaceNotice] = useState('');
   // Agents start paused after login. Incoming queries may land only after
   // the agent explicitly presses Resume.
   const [isAgentPaused, setIsAgentPaused] = useState(true);
-  const poolIndexRef = React.useRef(0);
   const dbHydratedRef = React.useRef(false);
+  const workspaceVersionRef = React.useRef(0);
+  const conflictReloadScheduledRef = React.useRef(false);
   const authCheckActiveRef = React.useRef(true);
   const setLandingLimit = (limit: number) => {
     if (!Number.isFinite(limit)) return;
     setLandingLimitState(Math.max(1, Math.min(20, Math.round(limit))));
   };
 
-  const INCOMING_QUERY_POOL = [
-    {
-      name: 'Sumon Das',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-      message: 'আমার নগদ একাউন্টে ক্যাশ আউট লিমিট শেষ হয়ে গেছে, কীভাবে বাড়াবো?',
-      email: '29481729481029481@facebook.com',
-    },
-    {
-      name: 'Tania Sultana',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-      message: 'সেন্ড মানি করতে গিয়ে ভুল নম্বরে টাকা চলে গেছে, এখন কি করণীয়?',
-      email: '30491829401928471@facebook.com',
-    },
-    {
-      name: 'Kamrul Islam',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-      message: 'নগদ ইসলামিক একাউন্টে কোনো সেভিংস ইন্টারেস্ট বা অতিরিক্ত চার্জ আছে কি?',
-      email: '18492049281740192@facebook.com',
-    },
-    {
-      name: 'Farhana Yasmin',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80',
-      message: 'আমার নতুন এনআইডি কার্ড দিয়ে নগদ একাউন্ট ভেরিফিকেশন সফল হয়েছে কিনা জানাবেন।',
-      email: '92847194018274019@facebook.com',
-    },
-    {
-      name: 'Sajid Hasan',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
-      message: 'মার্চেন্ট পেমেন্ট করার পর ট্রানজেকশন আইডি পেয়েছি কিন্তু ক্যাশব্যাক পাইনি।',
-      email: '49102948192048192@facebook.com',
-    },
-    {
-      name: 'Sharmin Sultana',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
-      message: 'নগদ পিন ৪ ডিজিট ভুলে গেছি, সেলফ রিসেট ডায়াল কোড দিয়ে কিভাবে করবো?',
-      email: '59201948192049182@facebook.com',
-    },
-  ];
 
   // Helper to land a query into the active inbox
   const landQueryItem = (item: WaitingQuery): Conversation => {
@@ -426,7 +389,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ? '/admin/dashboard' as AppRoute
       : currentUser.role !== 'admin' && requestedRoute.startsWith('/admin')
         ? '/agent/inbox' as AppRoute
-      : !['admin', 'supervisor', 'bi'].includes(currentUser.role) && requestedRoute.startsWith('/bi/') && requestedRoute !== '/bi/summary'
+      : !['admin', 'supervisor', 'bi'].includes(currentUser.role) && requestedRoute.startsWith('/bi/')
         ? '/agent/inbox' as AppRoute
         : currentUser.role === 'bi' && requestedRoute.startsWith('/agent')
           ? '/bi/summary' as AppRoute
@@ -520,6 +483,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     dbHydratedRef.current = false;
     inboxApi.loadState()
       .then(async (saved) => {
+        workspaceVersionRef.current = Number.isInteger(saved?.version) ? Number(saved.version) : 0;
         const data = saved?.state;
         if (data) {
           const recentCutoff = Date.now() - 2 * 24 * 60 * 60 * 1000;
@@ -581,8 +545,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!isLoggedIn || !dbHydratedRef.current) return;
     if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
     saveStateTimerRef.current = setTimeout(() => {
-      void inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings })
-        .catch((error) => console.error('Failed to persist workspace state to PostgreSQL', error));
+      void inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings }, workspaceVersionRef.current)
+        .then((saved) => { workspaceVersionRef.current = saved.version; })
+        .catch((error: Error & { status?: number }) => {
+          if (error.status === 409) {
+            setWorkspaceNotice('আপনার কিছু পরিবর্তন সেভ হয়নি, অন্য কেউ একই সময়ে আপডেট করেছে — পাতা রিফ্রেশ হচ্ছে');
+            if (!conflictReloadScheduledRef.current) {
+              conflictReloadScheduledRef.current = true;
+              window.setTimeout(() => window.location.reload(), 1400);
+            }
+            return;
+          }
+          console.error('Failed to persist workspace state to PostgreSQL', error);
+        });
     }, 300);
     return () => { if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current); };
   }, [isLoggedIn, users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings]);
@@ -690,7 +665,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const isFirstResponse = !messages.some((message) => message.conversationId === selectedConversationId && message.senderType === 'agent');
 
     setMessages((prev) => [...prev, newMessage]);
-    const updateDeliveryStatus = (deliveryStatus: 'sent' | 'failed') => setMessages((prev) => prev.map((message) => message.id === newMessage.id ? { ...message, metadata: { ...message.metadata, deliveryStatus } } : message));
+    const updateDeliveryStatus = (deliveryStatus: 'sent' | 'failed', deliveryError?: string) => setMessages((prev) => prev.map((message) => message.id === newMessage.id ? { ...message, metadata: { ...message.metadata, deliveryStatus, ...(deliveryError ? { deliveryError } : {}) } } : message));
     const persistMessage = () => inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'live_chat');
     if (!isExternalChannel) void persistMessage()
       .then(() => { if (!isExternalChannel) updateDeliveryStatus('sent'); })
@@ -715,12 +690,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
         addAuditLog('EMAIL_REPLY_SENT', 'Conversation', selectedConversationId, `Email reply accepted by SMTP for ${activeConversation.contact.email}`);
       }).catch((error) => {
-        updateDeliveryStatus('failed');
+        updateDeliveryStatus('failed', error?.message || 'SMTP delivery failed.');
         console.error('Failed to send email reply via SMTP', error);
         addAuditLog('EMAIL_REPLY_FAILED', 'Conversation', selectedConversationId, `Email reply failed for ${activeConversation.contact.email}: ${error?.message || 'SMTP request failed'}`);
       });
     } else if (activeConversation?.channelType === 'email') {
-      updateDeliveryStatus('failed');
+      const deliveryError = !activeConversation.contact.email
+        ? 'Customer email address is missing.'
+        : !emailSettings.enabled
+          ? 'Email channel is disabled in Admin Portal settings.'
+          : 'Email replies are disabled in Admin Portal settings.';
+      updateDeliveryStatus('failed', deliveryError);
       addAuditLog('EMAIL_REPLY_BLOCKED', 'Conversation', selectedConversationId, 'Email reply blocked by Admin email operations settings or missing customer email address.');
     } else if (activeConversation?.channelType === 'facebook') {
       updateDeliveryStatus('failed');
@@ -1204,7 +1184,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAuditLog('UPDATE_EMAIL_STATUS', 'CustomerEmail', emailId, `Changed email ticket status to ${status}`);
   };
 
-  const replyToCustomerEmail = (emailId: string, replyBody: string) => {
+  const replyToCustomerEmail = (emailId: string, _replyBody: string) => {
     const targetEmail = customerEmails.find((e) => e.id === emailId);
     if (!targetEmail) return;
 
@@ -1502,23 +1482,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => { socket.off('whatsapp:message', handleWhatsAppMessage); socket.disconnect(); };
   }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, currentUser.avatar, pages, tags]);
 
-  // Reset all data to default
-  const resetAllData = () => {
-    setUsers([]);
-    setCurrentUser(EMPTY_USER);
-    setPages([]);
-    setTags([]);
-    setQuickResponses([]);
-    setConversations([]);
-    setWaitingQueue([]);
-    setCustomerEmails([]);
-    setEmailSettings({ enabled: true, autoSync: true, autoLand: true, allowReplies: true });
-    setMessages([]);
-    setSlaRules([]);
-    setAuditLogs([]);
-    setSelectedConversationId(null);
-  };
-
   return (
     <AppContext.Provider
       value={{
@@ -1580,6 +1543,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         soundEnabled,
         setSoundEnabled,
         notificationCount,
+        workspaceNotice,
         waitingQueue,
         landingLimit,
         setLandingLimit,
@@ -1597,7 +1561,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         convertEmailToConversationTicket,
         sendNewCustomerEmail,
         mergeFetchedEmails,
-        resetAllData,
         createLiveChatVisitorConversation,
       }}
     >

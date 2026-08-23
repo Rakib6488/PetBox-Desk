@@ -10,7 +10,6 @@ import {
   ChevronDown,
   LogOut,
   Shield,
-  UserCheck,
   X,
   ArrowDownToLine,
   Settings,

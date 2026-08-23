@@ -16,7 +16,6 @@ import {
   ChevronDown,
   X,
   Maximize2,
-  CheckCircle2,
   Facebook,
   Globe,
   Mail,
@@ -31,7 +30,6 @@ export const ChatWindow: React.FC = () => {
     sendMessage,
     updateConversationSentiment,
     addTagToConversation,
-    removeTagFromConversation,
     endConversation,
     tags,
     currentUser,
@@ -47,7 +45,6 @@ export const ChatWindow: React.FC = () => {
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [tagSelectionError, setTagSelectionError] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [templateOpen, setTemplateOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
 
@@ -108,14 +105,6 @@ export const ChatWindow: React.FC = () => {
     if (activeTag) {
       endConversation(selectedConversation.id, activeTag, selectedSentiment);
     }
-  };
-
-  const handleVoiceRecord = () => {
-    setIsRecordingVoice(true);
-    setTimeout(() => {
-      setIsRecordingVoice(false);
-      sendMessage('🎙️ [Voice Audio Note 0:12s] "প্রিয় গ্রাহক, আপনার তথ্যাদি গ্রহণ করা হয়েছে।"', 'audio');
-    }, 1500);
   };
 
   const handleRealVoiceRecord = () => {
@@ -296,7 +285,7 @@ export const ChatWindow: React.FC = () => {
                     second: '2-digit',
                   })}
                 </span>
-                {isAgent && msg.metadata?.deliveryStatus && (msg.metadata.deliveryStatus === 'failed' ? <button type="button" onClick={() => sendMessage(msg.content, msg.messageType, msg.attachments)} className="block ml-auto text-[10px] font-semibold text-rose-600 underline hover:text-rose-800">Delivery failed · Retry</button> : <span className={`block text-[10px] ${msg.metadata.deliveryStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'} text-right mr-1`}>{msg.metadata.deliveryStatus === 'pending' ? 'Sending…' : 'Sent'}</span>)}
+                {isAgent && msg.metadata?.deliveryStatus && (msg.metadata.deliveryStatus === 'failed' ? <><button type="button" onClick={() => sendMessage(msg.content, msg.messageType, msg.attachments)} className="block ml-auto text-[10px] font-semibold text-rose-600 underline hover:text-rose-800">Delivery failed · Retry</button>{msg.metadata.deliveryError && <span className="block max-w-[240px] text-right text-[10px] text-rose-500">{msg.metadata.deliveryError}</span>}</> : <span className={`block text-[10px] ${msg.metadata.deliveryStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'} text-right mr-1`}>{msg.metadata.deliveryStatus === 'pending' ? 'Sending…' : 'Sent'}</span>)}
               </div>
             </div>
           );

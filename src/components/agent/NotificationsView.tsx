@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Bell, MessageSquare, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { Bell, MessageSquare, CheckCircle2 } from 'lucide-react';
 
 export const NotificationsView: React.FC = () => {
   const { conversations, setSelectedConversationId, setActiveTab } = useApp();

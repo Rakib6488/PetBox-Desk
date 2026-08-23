@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Conversation, ChannelType } from '../../types';
+import { Conversation } from '../../types';
 import {
   UserCheck,
   Bookmark,
@@ -9,8 +9,6 @@ import {
   Pause,
   Play,
   Paperclip,
-  X,
-  Check,
   MessageCircle,
   Facebook,
   Mail,

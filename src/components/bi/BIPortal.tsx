@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { BarChart3, Download, Filter, TrendingUp } from 'lucide-react';
+import { BarChart3, Download, Filter } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { AppRoute, ChannelType } from '../../types';
 
@@ -24,7 +24,7 @@ const tabItems: Array<{ id: BiTab; route: AppRoute; label: string }> = [
 ];
 
 export const BIPortal: React.FC = () => {
-  const { conversations, selectedConversation, users, tags, pages, slaRules, messages, customerEmails, waitingQueue, auditLogs, navigateTo, currentRoute } = useApp();
+  const { conversations, users, tags, pages, slaRules, messages, customerEmails, waitingQueue, auditLogs, navigateTo, currentRoute } = useApp();
   const [dateRange, setDateRange] = useState<DateRange>('last_7_days');
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedChannel, setSelectedChannel] = useState<ChannelType | 'all'>('all');
@@ -39,13 +39,6 @@ export const BIPortal: React.FC = () => {
     const routeTab = tabItems.find((item) => item.route === currentRoute);
     return routeTab?.id || 'summary';
   });
-
-  useEffect(() => {
-    if (currentRoute === '/bi/summary') {
-      const summaryConversation = selectedConversation || conversations.find((conversation) => conversation.summary) || null;
-      if (summaryConversation) setSelectedSummary(summaryConversation);
-    }
-  }, [currentRoute, selectedConversation?.id, conversations]);
 
   useEffect(() => {
     const routeTab = tabItems.find((item) => item.route === currentRoute);
@@ -63,6 +56,8 @@ export const BIPortal: React.FC = () => {
       return true;
     });
   }, [conversations, dateRange, selectedAgent, selectedChannel, selectedTag]);
+
+  const supportUsers = useMemo(() => users.filter((user) => user.role === 'agent' || user.role === 'supervisor'), [users]);
 
   const metrics = useMemo(() => {
     const closed = filtered.filter((item) => item.status === 'closed');
@@ -112,7 +107,7 @@ export const BIPortal: React.FC = () => {
     .filter((conversation) => conversation.summary)
     .filter((conversation) => !appliedSummaryFilters.startDate || conversation.lastMessageAt.slice(0, 10) >= appliedSummaryFilters.startDate)
     .filter((conversation) => !appliedSummaryFilters.endDate || conversation.lastMessageAt.slice(0, 10) <= appliedSummaryFilters.endDate)
-    .filter((conversation) => !appliedSummaryFilters.channelId.trim() || conversation.convUid.toLowerCase().includes(appliedSummaryFilters.channelId.trim().toLowerCase()))
+    .filter((conversation) => !appliedSummaryFilters.channelId.trim() || `${conversation.pageId || ''} ${conversation.convUid}`.toLowerCase().includes(appliedSummaryFilters.channelId.trim().toLowerCase()))
     .filter((conversation) => appliedSummaryFilters.status === 'all' || (appliedSummaryFilters.status === 'complete' ? conversation.status === 'closed' : conversation.status !== 'closed'))
     .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt)), [conversations, appliedSummaryFilters]);
   const slaData = useMemo(() => users.filter((user) => user.role === 'agent' || user.role === 'supervisor').map((user) => {
@@ -144,7 +139,7 @@ export const BIPortal: React.FC = () => {
     <div className="mx-auto max-w-[1600px] space-y-5">
       <div className="rounded-2xl bg-slate-900 p-5 text-white shadow-lg"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-teal-300"><BarChart3 className="h-4 w-4" /> Business Intelligence</div><h1 className="mt-1 text-2xl font-black">Petbox Desk BI Portal</h1><p className="mt-1 text-xs text-slate-300">Read-only insights derived from live Agent Portal activity.</p></div><button onClick={() => exportCsv([['Metric', 'Value'], ['Total queries', String(metrics.total)], ['Resolved', String(metrics.closed)], ['Resolution rate', `${metrics.resolutionRate}%`]], 'bi-summary.csv')} className="flex items-center justify-center gap-2 rounded-lg bg-teal-500 px-4 py-2 text-xs font-bold hover:bg-teal-400"><Download className="h-4 w-4" /> Export Summary</button></div></div>
       <div className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold shadow-sm">{tabItems.map((item) => <button key={item.id} onClick={() => { setActiveTab(item.id); navigateTo(item.route); }} className={`whitespace-nowrap rounded-lg px-3 py-2 ${activeTab === item.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{item.label}</button>)}</div>
-      <div className={`${card} grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4`}><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400"><Filter className="mr-1 inline h-3 w-3" /> Date range</label><select value={dateRange} onChange={(event) => setDateRange(event.target.value as DateRange)} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="today">Today</option><option value="last_7_days">Last 7 days</option><option value="last_30_days">Last 30 days</option></select></div><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Agent</label><select value={selectedAgent} onChange={(event) => setSelectedAgent(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="all">All agents</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></div><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Channel</label><select value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value as ChannelType | 'all')} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="all">All channels</option><option value="facebook">Facebook</option><option value="live_chat">Live Chat</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option></select></div><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Tag</label><select value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="all">All tags</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></div></div>
+      <div className={`${card} grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4`}><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400"><Filter className="mr-1 inline h-3 w-3" /> Date range</label><select value={dateRange} onChange={(event) => setDateRange(event.target.value as DateRange)} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="today">Today</option><option value="last_7_days">Last 7 days</option><option value="last_30_days">Last 30 days</option></select></div><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Agent</label><select value={selectedAgent} onChange={(event) => setSelectedAgent(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="all">All agents</option>{supportUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></div><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Channel</label><select value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value as ChannelType | 'all')} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="all">All channels</option><option value="facebook">Facebook</option><option value="live_chat">Live Chat</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option></select></div><div><label className="mb-1 block text-[10px] font-bold uppercase text-slate-400">Tag</label><select value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs"><option value="all">All tags</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></div></div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         {[
           ['Email tickets', operationalMetrics.emailTickets, 'bg-sky-50 text-sky-800'],

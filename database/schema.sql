@@ -91,8 +91,11 @@ CREATE TABLE IF NOT EXISTS app_state (
 CREATE TABLE IF NOT EXISTS workspace_state (
   id TEXT PRIMARY KEY DEFAULT 'default',
   state JSONB NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE workspace_state ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
 
 INSERT INTO workspace_state (id, state, updated_at)
 SELECT 'default', state, updated_at

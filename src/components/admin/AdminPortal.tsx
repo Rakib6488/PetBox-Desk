@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { PageChannel, User, Tag, QuickResponse, SLARule, UserRole } from '../../types';
+import { UserRole } from '../../types';
 import { adminApi } from '../../features/admin/adminApi';
 import { whatsappApi, type WhatsAppStatus } from '../../features/whatsapp/whatsappApi';
 import {
@@ -11,34 +11,16 @@ import {
   Clock,
   Settings,
   Plus,
-  Edit2,
   Trash2,
   Pause,
   Play,
-  CheckCircle2,
-  AlertCircle,
   Copy,
-  ExternalLink,
   Code,
-  Palette,
   Sparkles,
-  Bot,
-  Sliders,
   Check,
   Tag as TagIcon,
   Smartphone,
 } from 'lucide-react';
-
-type AdminTab =
-  | 'overview'
-  | 'agents'
-  | 'pages'
-  | 'tags'
-  | 'quick_responses'
-  | 'sla'
-  | 'audit_logs'
-  | 'roles'
-  | 'settings';
 
 const ROLE_SUMMARIES: Array<{ role: UserRole; label: string; description: string }> = [
   { role: 'admin', label: 'Admin', description: 'Full workspace configuration and oversight.' },
@@ -57,6 +39,8 @@ const PERMISSIONS: Array<{ label: string; category: 'Configuration' | 'Reporting
 
 export const AdminPortal: React.FC = () => {
   const {
+    currentUser,
+    setCurrentUser,
     users,
     setUsers,
     pages,
@@ -67,10 +51,8 @@ export const AdminPortal: React.FC = () => {
     addTag,
     deleteTag,
     quickResponses,
-    addQuickResponse,
     deleteQuickResponse,
     slaRules,
-    updateSLARule,
     auditLogs,
     conversations,
     waitingQueue,
@@ -81,7 +63,6 @@ export const AdminPortal: React.FC = () => {
     setLandingLimit,
     assignConversation,
     adminSubTab,
-    setAdminSubTab,
     navigateTo,
   } = useApp();
 
@@ -92,10 +73,11 @@ export const AdminPortal: React.FC = () => {
 
   // Agent modal state
   const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [agentName, setAgentName] = useState('');
   const [agentEmail, setAgentEmail] = useState('');
   const [agentPassword, setAgentPassword] = useState('');
-  const [agentRole, setAgentRole] = useState<'agent' | 'supervisor' | 'admin'>('agent');
+  const [agentRole, setAgentRole] = useState<UserRole>('agent');
   const [agentError, setAgentError] = useState('');
 
   // Tag modal state
@@ -147,18 +129,67 @@ export const AdminPortal: React.FC = () => {
     'আমাদের সকল এজেন্ট এই মুহূর্তে ব্যস্ত আছেন। শীঘ্রই আপনার মেসেজের উত্তর দেওয়া হবে।'
   );
 
-  const handleAddAgent = async () => {
-    if (!agentName.trim() || !agentEmail.trim() || !agentPassword) return;
+  const openAddAgentModal = () => {
+    setEditingUserId(null);
+    setAgentName('');
+    setAgentEmail('');
+    setAgentPassword('');
+    setAgentRole('agent');
+    setAgentError('');
+    setAgentModalOpen(true);
+  };
+
+  const openEditUserModal = (user: typeof users[number]) => {
+    setEditingUserId(user.id);
+    setAgentName(user.name);
+    setAgentEmail(user.email);
+    setAgentPassword('');
+    setAgentRole(user.role);
+    setAgentError('');
+    setAgentModalOpen(true);
+  };
+
+  const closeAgentModal = () => {
+    setAgentModalOpen(false);
+    setEditingUserId(null);
+    setAgentPassword('');
+    setAgentError('');
+  };
+
+  const handleSaveAgent = async () => {
+    if (!agentName.trim() || !agentEmail.trim()) return;
     setAgentError('');
     try {
-      const { user: newAgent } = await adminApi.createUser({ name: agentName, email: agentEmail, password: agentPassword, role: agentRole });
-      setUsers((prev) => [...prev.filter((user) => user.id !== newAgent.id), newAgent]);
-      setAgentModalOpen(false);
-      setAgentName('');
-      setAgentEmail('');
-      setAgentPassword('');
+      if (editingUserId) {
+        const { user: updatedUser } = await adminApi.updateUser(editingUserId, { name: agentName.trim(), email: agentEmail.trim(), role: agentRole });
+        setUsers((prev) => prev.map((user) => user.id === updatedUser.id ? updatedUser : user));
+        if (updatedUser.id === currentUser.id) setCurrentUser(updatedUser);
+      } else {
+        if (!agentPassword || agentPassword.length < 8) {
+          setAgentError('Password must be at least 8 characters.');
+          return;
+        }
+        const { user: newAgent } = await adminApi.createUser({ name: agentName.trim(), email: agentEmail.trim(), password: agentPassword, role: agentRole });
+        setUsers((prev) => [...prev.filter((user) => user.id !== newAgent.id), newAgent]);
+      }
+      closeAgentModal();
     } catch (error: any) {
-      setAgentError(error?.message || 'Unable to create user.');
+      setAgentError(error?.message || 'Unable to save user.');
+    }
+  };
+
+  const handleToggleUserStatus = async (user: typeof users[number]) => {
+    const willDisable = user.status !== 'disabled';
+    const confirmation = willDisable
+      ? `আপনি কি নিশ্চিত ${user.name} কে disable করতে চান? এই ইউজার আর লগইন করতে পারবে না।`
+      : `${user.name} কে আবার enable করতে চান?`;
+    if (!window.confirm(confirmation)) return;
+    setAgentError('');
+    try {
+      const { user: updatedUser } = await adminApi.updateUserStatus(user.id, willDisable ? 'disabled' : 'active');
+      setUsers((prev) => prev.map((item) => item.id === updatedUser.id ? updatedUser : item));
+    } catch (error: any) {
+      setAgentError(error?.message || 'Unable to update user status.');
     }
   };
 
@@ -301,14 +332,6 @@ export const AdminPortal: React.FC = () => {
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-2xs">
-            <div className="flex items-center justify-between"><div><h3 className="flex items-center gap-2 text-sm font-bold text-slate-800"><FileText className="h-4 w-4 text-teal-600" /> Customer Message Summaries</h3><p className="mt-1 text-xs text-slate-500">Saved summaries generated from Agent Portal customer messages.</p></div><span className="rounded-full bg-teal-50 px-2 py-1 text-[10px] font-bold text-teal-700">{conversations.filter((conversation) => conversation.summary).length} saved</span></div>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
-              {conversations.filter((conversation) => conversation.summary).slice(0, 6).map((conversation) => <div key={conversation.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs font-bold text-slate-800">{conversation.contact.name}</p><span className="text-[10px] text-slate-400">{conversation.summary?.customerMessageCount} msgs</span></div><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-600">{conversation.summary?.text}</p></div>)}
-              {conversations.filter((conversation) => conversation.summary).length === 0 && <p className="col-span-full py-4 text-center text-xs text-slate-400">Customer summaries will appear as messages arrive.</p>}
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {/* Real-time Agent Status Board */}
             <div className="min-w-0 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
@@ -387,12 +410,13 @@ export const AdminPortal: React.FC = () => {
               <Users className="w-4 h-4 text-teal-600" /> Support Agents & Supervisors
             </h3>
             <button
-              onClick={() => setAgentModalOpen(true)}
+              onClick={openAddAgentModal}
               className="px-3 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-semibold hover:bg-teal-700 flex items-center gap-1.5 shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" /> Add New Agent
             </button>
           </div>
+          {agentError && !agentModalOpen && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{agentError}</p>}
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700">
@@ -404,6 +428,7 @@ export const AdminPortal: React.FC = () => {
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Conversations Handled</th>
                   <th className="py-3 px-4">Avg Handle Time</th>
+                  <th className="py-3 px-4">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
@@ -422,6 +447,8 @@ export const AdminPortal: React.FC = () => {
                             ? 'bg-emerald-100 text-emerald-700'
                             : u.status === 'away'
                             ? 'bg-amber-100 text-amber-700'
+                            : u.status === 'disabled'
+                            ? 'bg-rose-100 text-rose-700'
                             : 'bg-slate-100 text-slate-600'
                         }`}
                       >
@@ -433,6 +460,22 @@ export const AdminPortal: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-600">
                       {u.avgHandleTimeMinutes || 3.5} mins
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={() => openEditUserModal(u)} className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                          Edit
+                        </button>
+                        {u.id !== currentUser.id && (
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleUserStatus(u)}
+                            className={`rounded-md px-2 py-1 text-[11px] font-semibold ${u.status === 'disabled' ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
+                          >
+                            {u.status === 'disabled' ? 'Enable' : 'Disable'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -888,8 +931,8 @@ export const AdminPortal: React.FC = () => {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm">Add Support Agent</h3>
-              <button onClick={() => setAgentModalOpen(false)} className="text-slate-400">✕</button>
+              <h3 className="font-bold text-slate-800 text-sm">{editingUserId ? 'Edit User' : 'Add Support Agent'}</h3>
+              <button onClick={closeAgentModal} className="text-slate-400">✕</button>
             </div>
 
             <div className="py-4 space-y-3 text-xs">
@@ -925,10 +968,11 @@ export const AdminPortal: React.FC = () => {
                   <option value="agent">Support Agent</option>
                   <option value="supervisor">Team Supervisor</option>
                   <option value="admin">System Administrator</option>
+                  <option value="bi">BI User</option>
                 </select>
               </div>
 
-              <div>
+              {!editingUserId && <div>
                 <label className="block font-semibold text-slate-700 mb-1">Initial Password</label>
                 <input
                   type="password"
@@ -938,22 +982,22 @@ export const AdminPortal: React.FC = () => {
                   minLength={8}
                   className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                 />
-              </div>
+              </div>}
               {agentError && <p className="text-xs text-rose-600">{agentError}</p>}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button
-                onClick={() => setAgentModalOpen(false)}
+                onClick={closeAgentModal}
                 className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium"
               >
                 Cancel
               </button>
               <button
-                onClick={handleAddAgent}
+                onClick={() => void handleSaveAgent()}
                 className="px-4 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700"
               >
-                Save Agent
+                {editingUserId ? 'Save Changes' : 'Save Agent'}
               </button>
             </div>
           </div>

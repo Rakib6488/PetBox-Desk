@@ -10,9 +10,7 @@ import {
   UserPlus,
   Search,
   MoreVertical,
-  GripVertical,
   X,
-  Plus,
 } from 'lucide-react';
 
 export const RightPanel: React.FC = () => {
@@ -40,7 +38,7 @@ export const RightPanel: React.FC = () => {
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrTitle, setQrTitle] = useState('');
   const [qrContent, setQrContent] = useState('');
-  const [qrCategory, setQrCategory] = useState<QuickResponseCategory>('mine');
+  const [qrCategory] = useState<QuickResponseCategory>('mine');
   const [assignOpen, setAssignOpen] = useState(false);
   const [openQrMenuId, setOpenQrMenuId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');

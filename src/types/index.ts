@@ -4,6 +4,8 @@ export type AppRoute =
   | '/agent/assigned'
   | '/agent/bookmarked'
   | '/agent/summary'
+  | '/admin/summary/all'
+  | '/admin/summary/agents'
   | '/agent/team'
   | '/admin/dashboard'
   | '/admin/agents'
@@ -28,7 +30,7 @@ export type AppRoute =
   | '/customer-website';
 
 export type UserRole = 'admin' | 'supervisor' | 'agent' | 'bi';
-export type AgentStatus = 'online' | 'away' | 'break' | 'offline';
+export type AgentStatus = 'online' | 'away' | 'break' | 'offline' | 'disabled';
 export type ChannelType = 'facebook' | 'live_chat' | 'email' | 'whatsapp';
 export type ConversationStatus = 'open' | 'pending' | 'paused' | 'closed';
 export type SentimentType = 'positive' | 'negative' | 'neutral';

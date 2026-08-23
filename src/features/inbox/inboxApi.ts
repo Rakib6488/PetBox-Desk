@@ -9,7 +9,6 @@ export const inboxApi = {
     apiRequest(`/api/conversations/${encodeURIComponent(conversationId)}`, {
       method: 'PATCH', body: JSON.stringify(fields),
     }),
-  loadState: () => apiRequest<{ state: any }>('/api/state'),
-  loadBootstrap: () => apiRequest<any>('/api/bootstrap'),
-  saveState: (state: unknown) => apiRequest('/api/state', { method: 'PUT', body: JSON.stringify(state) }),
+  loadState: () => apiRequest<{ state: any; version?: number }>('/api/state'),
+  saveState: (state: unknown, version = 0) => apiRequest<{ success: boolean; version: number }>('/api/state', { method: 'PUT', body: JSON.stringify({ ...(state as Record<string, unknown>), version }) }),
 };

@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { checkDatabaseConnection, dbPool } from '../db';
-import { clearSessionCookie, createSessionToken, hashPassword, requireAuth, setSessionCookie, verifyPassword } from '../auth';
+import { clearSessionCookie, createSessionToken, hashPassword, requireAuth, requireRole, setSessionCookie, verifyPassword } from '../auth';
 
 export const coreRouter = Router();
+const validUserRoles = ['admin', 'supervisor', 'agent', 'bi'] as const;
 const loginFailures = new Map<string, { count: number; resetAt: number }>();
 const loginWindowMs = 15 * 60 * 1000;
 const maxLoginFailures = 5;
@@ -64,6 +65,19 @@ coreRouter.get('/auth/me', requireAuth, (_req, res) => {
   res.json({ user: res.locals.user });
 });
 
+// Kept as a compatibility endpoint for older clients. Both portals receive
+// the same authenticated workspace snapshot from the shared PostgreSQL row.
+coreRouter.get('/bootstrap', requireAuth, async (_req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+  try {
+    const result = await dbPool.query('SELECT state, version, updated_at AS "updatedAt" FROM workspace_state WHERE id = \'default\'');
+    res.json(result.rows[0] || { state: null });
+  } catch (error) {
+    console.error('Bootstrap load failed:', error);
+    res.status(503).json({ error: 'Unable to load workspace state.' });
+  }
+});
+
 coreRouter.post('/admin/users', requireAuth, async (req, res) => {
   if (res.locals.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required.' });
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
@@ -88,10 +102,102 @@ coreRouter.post('/admin/users', requireAuth, async (req, res) => {
   }
 });
 
+coreRouter.patch('/admin/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+
+  const body = req.body || {};
+  const updates: Array<[string, string]> = [];
+  if (body.name !== undefined) {
+    if (typeof body.name !== 'string' || !body.name.trim()) return res.status(400).json({ error: 'Name cannot be empty.' });
+    updates.push(['name', body.name.trim()]);
+  }
+  if (body.email !== undefined) {
+    if (typeof body.email !== 'string' || !body.email.trim()) return res.status(400).json({ error: 'Email cannot be empty.' });
+    updates.push(['email', body.email.trim().toLowerCase()]);
+  }
+  if (body.role !== undefined) {
+    if (!validUserRoles.includes(body.role)) return res.status(400).json({ error: 'A valid role is required.' });
+    updates.push(['role', body.role]);
+  }
+  if (!updates.length) return res.status(400).json({ error: 'Name, email or role is required.' });
+
+  try {
+    const targetResult = await dbPool.query('SELECT id, role, status FROM users WHERE id = $1', [req.params.id]);
+    const target = targetResult.rows[0];
+    if (!target) return res.status(404).json({ error: 'User not found.' });
+
+    const nextRole = updates.find(([key]) => key === 'role')?.[1];
+    if (target.role === 'admin' && target.status !== 'disabled' && nextRole && nextRole !== 'admin') {
+      const otherAdminResult = await dbPool.query(
+        `SELECT COUNT(*)::int AS count FROM users
+         WHERE role = 'admin' AND status <> 'disabled' AND id <> $1`,
+        [target.id]
+      );
+      if (otherAdminResult.rows[0].count === 0) {
+        return res.status(409).json({ error: 'At least one active admin must remain.' });
+      }
+    }
+
+    const values = updates.map(([, value]) => value);
+    values.push(req.params.id);
+    const setClause = updates.map(([key], index) => `${key} = $${index + 1}`).join(', ');
+    const result = await dbPool.query(
+      `UPDATE users SET ${setClause}
+       WHERE id = $${values.length}
+       RETURNING id, name, email, role, status, avatar, status_started_at AS "statusStartedAt", created_at AS "createdAt"`,
+      values
+    );
+    res.json({ user: result.rows[0] });
+  } catch (error: any) {
+    if (error?.code === '23505') return res.status(409).json({ error: 'A user with this email already exists.' });
+    console.error('User update failed:', error);
+    res.status(503).json({ error: 'Unable to update user.' });
+  }
+});
+
+coreRouter.patch('/admin/users/:id/status', requireAuth, requireRole('admin'), async (req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+  const requestedStatus = req.body?.status;
+  if (requestedStatus !== 'active' && requestedStatus !== 'disabled') {
+    return res.status(400).json({ error: 'Status must be active or disabled.' });
+  }
+
+  try {
+    const targetResult = await dbPool.query('SELECT id, role, status FROM users WHERE id = $1', [req.params.id]);
+    const target = targetResult.rows[0];
+    if (!target) return res.status(404).json({ error: 'User not found.' });
+    if (requestedStatus === 'disabled' && target.id === res.locals.user.id) {
+      return res.status(409).json({ error: 'You cannot disable your own account.' });
+    }
+    if (requestedStatus === 'disabled' && target.role === 'admin' && target.status !== 'disabled') {
+      const otherAdminResult = await dbPool.query(
+        `SELECT COUNT(*)::int AS count FROM users
+         WHERE role = 'admin' AND status <> 'disabled' AND id <> $1`,
+        [target.id]
+      );
+      if (otherAdminResult.rows[0].count === 0) {
+        return res.status(409).json({ error: 'At least one active admin must remain.' });
+      }
+    }
+
+    const databaseStatus = requestedStatus === 'disabled' ? 'disabled' : 'offline';
+    const result = await dbPool.query(
+      `UPDATE users SET status = $1, status_started_at = NOW()
+       WHERE id = $2
+       RETURNING id, name, email, role, status, avatar, status_started_at AS "statusStartedAt", created_at AS "createdAt"`,
+      [databaseStatus, req.params.id]
+    );
+    res.json({ user: result.rows[0], status: result.rows[0].status });
+  } catch (error) {
+    console.error('User status update failed:', error);
+    res.status(503).json({ error: 'Unable to update user status.' });
+  }
+});
+
 coreRouter.get('/state', requireAuth, async (_req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   try {
-    const result = await dbPool.query('SELECT state, updated_at AS "updatedAt" FROM workspace_state WHERE id = \'default\'');
+    const result = await dbPool.query('SELECT state, version, updated_at AS "updatedAt" FROM workspace_state WHERE id = \'default\'');
     res.json(result.rows[0] || { state: null });
   } catch (error) {
     console.error('State load failed:', error);
@@ -103,28 +209,34 @@ coreRouter.put('/state', requireAuth, async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'State object is required.' });
   if (JSON.stringify(req.body).length > 12_000_000) return res.status(413).json({ error: 'State payload is too large.' });
+  const requestedVersion = req.body.version === undefined ? 0 : Number(req.body.version);
+  if (!Number.isInteger(requestedVersion) || requestedVersion < 0) return res.status(400).json({ error: 'A valid workspace state version is required.' });
   try {
+    await dbPool.query(`INSERT INTO workspace_state (id, state, version) VALUES ('default', '{}'::jsonb, 0) ON CONFLICT (id) DO NOTHING`);
     const current = await dbPool.query('SELECT state FROM workspace_state WHERE id = \'default\'');
     const previous = current.rows[0]?.state || {};
-    const incoming = req.body as Record<string, unknown>;
+    const { version: _version, ...incoming } = req.body as Record<string, unknown>;
     const protectedKeys = ['users', 'pages', 'tags', 'quickResponses', 'slaRules', 'emailSettings', 'landingLimit', 'auditLogs'];
     const state = { ...previous, ...incoming } as Record<string, unknown>;
     if (res.locals.user.role !== 'admin') {
       for (const key of protectedKeys) state[key] = previous[key];
     }
-    await dbPool.query(
-      `INSERT INTO workspace_state (id, state) VALUES ('default', $1::jsonb)
-       ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()`,
-      [JSON.stringify(state)]
+    const result = await dbPool.query(
+      `UPDATE workspace_state
+       SET state = $1::jsonb, version = version + 1, updated_at = NOW()
+       WHERE id = 'default' AND version = $2
+       RETURNING version`,
+      [JSON.stringify(state), requestedVersion]
     );
-    res.json({ success: true });
+    if (!result.rowCount) return res.status(409).json({ error: 'Workspace changed elsewhere. Reload the latest state before saving again.', code: 'WORKSPACE_STATE_CONFLICT' });
+    res.json({ success: true, version: result.rows[0].version });
   } catch (error) {
     console.error('State save failed:', error);
     res.status(503).json({ error: 'Unable to save workspace state.' });
   }
 });
 
-coreRouter.patch('/conversations/:id', requireAuth, async (req, res) => {
+coreRouter.patch('/conversations/:id', requireAuth, requireRole('admin', 'supervisor', 'agent'), async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   const allowed = ['assigned_agent_id', 'status', 'subject'];
   const updates = Object.entries(req.body || {}).filter(([key, value]) => allowed.includes(key) && value !== undefined);
@@ -142,7 +254,7 @@ coreRouter.patch('/conversations/:id', requireAuth, async (req, res) => {
   }
 });
 
-coreRouter.post('/conversations/:id/messages', requireAuth, async (req, res) => {
+coreRouter.post('/conversations/:id/messages', requireAuth, requireRole('admin', 'supervisor', 'agent'), async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   const { content, messageType = 'text', channel = 'live_chat' } = req.body || {};
   if (typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Message content is required.' });

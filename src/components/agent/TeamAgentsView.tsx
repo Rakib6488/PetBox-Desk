@@ -1,9 +1,9 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Users, Circle, Clock, CheckCircle2, MessageSquare } from 'lucide-react';
+import { Users } from 'lucide-react';
 
 export const TeamAgentsView: React.FC = () => {
-  const { users, currentUser, conversations, setSelectedConversationId, setActiveTab } = useApp();
+  const { users, conversations, setSelectedConversationId, setActiveTab } = useApp();
 
   return (
     <div className="flex-1 bg-slate-50 overflow-y-auto p-6 flex flex-col gap-6 select-none">

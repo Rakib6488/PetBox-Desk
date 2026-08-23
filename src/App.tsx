@@ -12,21 +12,22 @@ import { BIPortal } from './components/bi/BIPortal';
 import { AgentSummaryView } from './components/agent/AgentSummaryView';
 
 const MainLayout: React.FC = () => {
-  const { currentRoute, isLoggedIn, currentUser, navigateTo } = useApp();
+  const { currentRoute, isLoggedIn, currentUser, navigateTo, workspaceNotice } = useApp();
 
   useEffect(() => {
     const adminOnly = currentRoute.startsWith('/admin') || currentRoute.startsWith('/dev-tools/');
-    const biRestricted = currentRoute.startsWith('/bi/') && currentRoute !== '/bi/summary' && !['admin', 'supervisor', 'bi'].includes(currentUser.role);
+    const biRestricted = currentRoute.startsWith('/bi/') && !['admin', 'supervisor', 'bi'].includes(currentUser.role);
     if (isLoggedIn && (adminOnly && currentUser.role !== 'admin' || biRestricted)) navigateTo('/agent/inbox');
   }, [currentRoute, currentUser.role, isLoggedIn, navigateTo]);
 
   // If user is navigating to /login or is logged out
   const isLoginRoute = currentRoute === '/login' || !isLoggedIn;
-  const blockedRoute = (currentRoute.startsWith('/admin') && currentUser.role !== 'admin') || (currentRoute.startsWith('/bi/') && currentRoute !== '/bi/summary' && !['admin', 'supervisor', 'bi'].includes(currentUser.role));
+  const blockedRoute = (currentRoute.startsWith('/admin') && currentUser.role !== 'admin') || (currentRoute.startsWith('/bi/') && !['admin', 'supervisor', 'bi'].includes(currentUser.role));
   if (blockedRoute) return null;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-100 overflow-hidden font-sans text-slate-900">
+      {workspaceNotice && <div role="status" className="fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 rounded-lg bg-amber-900 px-4 py-3 text-xs font-semibold text-white shadow-xl">{workspaceNotice}</div>}
       {/* View router switch */}
       {isLoginRoute ? (
         <LoginView />
@@ -41,7 +42,7 @@ const MainLayout: React.FC = () => {
             <SidebarNav />
 
             {/* Dynamic Center/Right Area based on Route Hierarchy */}
-            {currentRoute === '/agent/summary' ? (
+            {(currentRoute === '/agent/summary' || currentRoute === '/admin/summary/all' || currentRoute === '/admin/summary/agents') ? (
               <AgentSummaryView />
             ) : currentRoute === '/agent/team' ? (
               <TeamAgentsView />
