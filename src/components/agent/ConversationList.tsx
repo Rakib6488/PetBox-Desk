@@ -35,10 +35,17 @@ export const ConversationList: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (selectedConversationId && !conversations.some((conversation) => conversation.id === selectedConversationId && conversation.assignedAgentId === currentUser.id)) {
+      setSelectedConversationId(null);
+    }
+  }, [conversations, currentUser.id, selectedConversationId, setSelectedConversationId]);
+
   const filteredConversations = isAgentPaused ? [] : conversations.filter((c) => {
-    if (activeFilter === 'bookmarked') return c.isBookmarked && c.status !== 'closed';
+    const isAssignedToMe = c.assignedAgentId === currentUser.id;
+    if (activeFilter === 'bookmarked') return isAssignedToMe && c.isBookmarked && c.status !== 'closed';
     if (activeFilter === 'assigned') return c.assignedAgentId === currentUser.id && (c.status === 'open' || c.status === 'pending');
-    return c.status === 'open' || c.status === 'pending';
+    return isAssignedToMe && (c.status === 'open' || c.status === 'pending');
   });
 
   const getSlaLabel = (conversation: Conversation) => {
