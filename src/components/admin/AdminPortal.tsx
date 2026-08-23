@@ -228,43 +228,8 @@ export const AdminPortal: React.FC = () => {
 </script>`;
 
   return (
-    <div className="flex-1 min-w-0 w-full bg-slate-50 overflow-x-hidden overflow-y-auto p-4 sm:p-6 flex flex-col md:flex-row gap-6 select-none">
-      {/* Left Admin Navigation */}
-      <div className="w-full md:w-64 md:shrink-0 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col gap-4 self-start">
-        {/* Tab Navigation */}
-        <div className="flex min-w-0 max-w-full flex-col items-stretch gap-1 border-t border-slate-100 pt-3 text-xs font-semibold">
-          {[
-            { id: 'overview', route: '/admin/dashboard', label: 'Dashboard', icon: Settings },
-            { id: 'agents', route: '/admin/agents', label: 'Agents', icon: Users },
-            { id: 'pages', route: '/admin/pages', label: 'Pages', icon: Layers },
-            { id: 'tags', route: '/admin/tags', label: 'Tags', icon: TagIcon },
-            { id: 'quick-responses', route: '/admin/quick-responses', label: 'Quick Responses', icon: FileText },
-            { id: 'sla', route: '/admin/sla', label: 'SLA', icon: Shield },
-            { id: 'audit-logs', route: '/admin/audit-logs', label: 'Audit Logs', icon: Shield },
-            { id: 'roles', route: '/admin/roles', label: 'Roles & Permissions', icon: Shield },
-            { id: 'settings', route: '/admin/settings', label: 'Settings', icon: Settings },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => navigateTo(tab.route as any)}
-                className={`w-full px-3 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap text-left transition-all ${
-                  isActive
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="min-w-0 flex-1 space-y-6">
+    <div className="flex-1 min-w-0 w-full bg-slate-50 overflow-x-hidden overflow-y-auto p-4 sm:p-6 select-none">
+      <div className="min-w-0 space-y-6">
       {/* TAB CONTENT: Overview */}
       {activeTab === 'overview' && (
         <div className="space-y-6">

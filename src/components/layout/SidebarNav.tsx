@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart } from 'lucide-react';
+import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart, Layers, FileText, Settings, Tag as TagIcon } from 'lucide-react';
 
 export const SidebarNav: React.FC = () => {
   const { currentRoute, navigateTo, currentUser } = useApp();
@@ -13,7 +13,7 @@ export const SidebarNav: React.FC = () => {
     <aside className={`${isAdmin ? 'w-52 items-stretch px-2' : 'w-10 items-center'} border-r border-slate-200 bg-white flex flex-col py-2.5 justify-between select-none shrink-0 z-10`}>
       {/* Top Camera / Snapshot icon matching screenshot */}
       <div className={`flex flex-col gap-2 ${isAdmin ? 'items-stretch' : 'items-center'}`}>
-        <button
+        {!isAdmin && <button
           type="button"
           onClick={() => {
             if (currentUser.role === 'admin') {
@@ -28,7 +28,7 @@ export const SidebarNav: React.FC = () => {
         >
           <Inbox className="w-4 h-4 text-slate-600 stroke-[1.8]" />
           {isAdmin && <span className="text-xs font-semibold">Dashboard</span>}
-        </button>
+        </button>}
         {!isAdmin && <button
           type="button"
           onClick={() => navigateTo('/agent/assigned')}
@@ -48,11 +48,8 @@ export const SidebarNav: React.FC = () => {
           <List className="w-4 h-4" />
         </button>}
         {isAdmin ? (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-1">
-            <div className={`flex items-center justify-between rounded px-2 py-1.5 text-xs font-bold ${isSummaryRoute ? 'text-teal-700' : 'text-slate-700'}`}>
-              <span className="flex items-center gap-2"><FileBarChart className="h-4 w-4" /> Summary</span>
-              <ChevronDown className="h-3.5 w-3.5" />
-            </div>
+          <div className="w-full rounded-lg border border-slate-200 bg-slate-50 p-1">
+            <div className="flex items-center justify-between rounded px-2 py-1.5 text-xs font-bold text-slate-700"><span className="flex items-center gap-2"><FileBarChart className="h-4 w-4" /> Summary</span><ChevronDown className="h-3.5 w-3.5" /></div>
             <button type="button" onClick={() => navigateTo('/admin/summary/all')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/all' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><List className="h-3.5 w-3.5" /> All summaries</button>
             <button type="button" onClick={() => navigateTo('/admin/summary/agents')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/agents' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><Users className="h-3.5 w-3.5" /> Agent-wise</button>
           </div>
@@ -65,6 +62,23 @@ export const SidebarNav: React.FC = () => {
         >
           <List className="w-4 h-4" />
         </button>}
+        {isAdmin && <div className="mt-1 flex w-full flex-col gap-1 border-t border-slate-100 pt-2">
+          {[
+            ['/admin/dashboard', 'Dashboard', Settings],
+            ['/admin/agents', 'Agents', Users],
+            ['/admin/pages', 'Pages', Layers],
+            ['/admin/tags', 'Tags', TagIcon],
+            ['/admin/quick-responses', 'Quick Responses', FileText],
+            ['/admin/sla', 'SLA', Shield],
+            ['/admin/audit-logs', 'Audit Logs', Shield],
+            ['/admin/roles', 'Roles & Permissions', Shield],
+            ['/admin/settings', 'Settings', Settings],
+          ].map(([route, label, Icon]) => (
+            <button key={route} type="button" onClick={() => navigateTo(route as any)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${currentRoute === route ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}>
+              <Icon className="h-3.5 w-3.5" /> {label}
+            </button>
+          ))}
+        </div>}
       </div>
 
       {/* Bottom Send / Plane icon matching screenshot */}
