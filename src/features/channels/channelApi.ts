@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 const backendUrl = import.meta.env.VITE_API_URL || window.location.origin;
 
 export const channelApi = {
+  fetchFacebookPage: () => apiRequest<{ page: { id: string; name: string } }>('/api/channels/facebook/page'),
   sendFacebookMessage: (payload: { recipientId: string; text: string }) =>
     apiRequest<{ success: boolean; messageId?: string; error?: string }>('/api/channels/facebook/send', {
       method: 'POST',

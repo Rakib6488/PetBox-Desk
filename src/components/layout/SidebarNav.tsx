@@ -47,6 +47,13 @@ export const SidebarNav: React.FC = () => {
         >
           <List className="w-4 h-4" />
         </button>}
+        {isAdmin && <button
+          type="button"
+          onClick={() => navigateTo('/admin/dashboard')}
+          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${currentRoute === '/admin/dashboard' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          <Settings className="h-3.5 w-3.5" /> Dashboard
+        </button>}
         {isAdmin ? (
           <div className="w-full rounded-lg border border-slate-200 bg-slate-50 p-1">
             <div className="flex items-center justify-between rounded px-2 py-1.5 text-xs font-bold text-slate-700"><span className="flex items-center gap-2"><FileBarChart className="h-4 w-4" /> Summary</span><ChevronDown className="h-3.5 w-3.5" /></div>
@@ -64,7 +71,6 @@ export const SidebarNav: React.FC = () => {
         </button>}
         {isAdmin && <div className="mt-1 flex w-full flex-col gap-1 border-t border-slate-100 pt-2">
           {[
-            ['/admin/dashboard', 'Dashboard', Settings],
             ['/admin/agents', 'Agents', Users],
             ['/admin/pages', 'Pages', Layers],
             ['/admin/tags', 'Tags', TagIcon],

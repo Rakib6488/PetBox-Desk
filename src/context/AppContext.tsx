@@ -138,7 +138,7 @@ interface AppContextType {
   pages: PageChannel[];
   togglePageStatus: (pageId: string, reason?: string) => void;
   updatePageSettings: (pageId: string, settings: Partial<PageChannel>) => void;
-  addPage: (page: Omit<PageChannel, 'id'>) => void;
+  addPage: (page: Omit<PageChannel, 'id'> & { id?: string }) => void;
 
   // Quick Responses
   quickResponses: QuickResponse[];
@@ -237,6 +237,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // the agent explicitly presses Resume.
   const [isAgentPaused, setIsAgentPaused] = useState(true);
   const dbHydratedRef = React.useRef(false);
+  const skipNextWorkspaceSaveRef = React.useRef(false);
   const workspaceVersionRef = React.useRef(0);
   const conflictReloadScheduledRef = React.useRef(false);
   const authCheckActiveRef = React.useRef(true);
@@ -259,7 +260,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const newContact: Contact = {
       id: contactId,
       name: item.name,
-      facebookPsid: item.email.split('@')[0],
+      facebookPsid: item.facebookPsid || item.email.split('@')[0],
+      whatsappJid: item.whatsappJid,
       email: item.email,
       avatar: item.avatar,
       createdAt: new Date().toISOString(),
@@ -269,7 +271,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const newConv: Conversation = {
       id: convId,
       convUid,
-      pageId: 'page_petbox_fb',
+      pageId: item.pageId || 'page_petbox_fb',
       pageName: item.pageName || 'Petbox',
       channelType: item.channelType || 'facebook',
       contactId: newContact.id,
@@ -317,6 +319,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     playSoundChime();
     addAuditLog('QUERY_LANDED_INBOX', 'Conversation', convId, `Query landed in agent inbox from ${item.name}`);
     return newConv;
+  };
+
+  const queueIncomingQuery = (item: WaitingQuery) => {
+    setWaitingQueue((previous) => previous.some((query) => query.id === item.id) ? previous : [...previous, item]);
+    addAuditLog('QUERY_ADDED_TO_WAITING_QUEUE', 'WaitingQuery', item.id, `${item.channelType} query queued for an available agent`);
   };
 
   // Land next waiting query from queue if available
@@ -481,8 +488,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     if (!isLoggedIn) return;
     dbHydratedRef.current = false;
+    skipNextWorkspaceSaveRef.current = false;
     inboxApi.loadState()
       .then(async (saved) => {
+        // Loading the shared snapshot must not immediately write it back.
+        skipNextWorkspaceSaveRef.current = true;
         workspaceVersionRef.current = Number.isInteger(saved?.version) ? Number(saved.version) : 0;
         const data = saved?.state;
         if (data) {
@@ -535,7 +545,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         dbHydratedRef.current = true;
       })
       .catch(() => {
-        dbHydratedRef.current = true;
+        // Never persist empty/default state when the shared snapshot failed to load.
+        dbHydratedRef.current = false;
       });
   }, [isLoggedIn]);
 
@@ -543,12 +554,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const saveStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!isLoggedIn || !dbHydratedRef.current) return;
+    if (skipNextWorkspaceSaveRef.current) {
+      skipNextWorkspaceSaveRef.current = false;
+      return;
+    }
     if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
     saveStateTimerRef.current = setTimeout(() => {
       void inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings }, workspaceVersionRef.current)
         .then((saved) => { workspaceVersionRef.current = saved.version; })
         .catch((error: Error & { status?: number }) => {
           if (error.status === 409) {
+            dbHydratedRef.current = false;
+            if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
             setWorkspaceNotice('আপনার কিছু পরিবর্তন সেভ হয়নি, অন্য কেউ একই সময়ে আপডেট করেছে — পাতা রিফ্রেশ হচ্ছে');
             if (!conflictReloadScheduledRef.current) {
               conflictReloadScheduledRef.current = true;
@@ -1055,10 +1072,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAuditLog('PAGE_SETTINGS_UPDATE', 'PageChannel', pageId, 'Updated settings');
   };
 
-  const addPage = (newPage: Omit<PageChannel, 'id'>) => {
+  const addPage = (newPage: Omit<PageChannel, 'id'> & { id?: string }) => {
     const page: PageChannel = {
       ...newPage,
-      id: `page_${Date.now()}`,
+      id: newPage.id || `page_${Date.now()}`,
     };
     setPages((prev) => [...prev, page]);
     addAuditLog('PAGE_CREATE', 'PageChannel', page.id, `Created page ${page.name}`);
@@ -1388,6 +1405,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (isPromotionalMessage(incoming.content, incoming.senderName)) return;
       if (incoming.eventId && messages.some((message) => message.id === incoming.eventId)) return;
       const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
+      const existingConversation = conversations.find((conversation) => conversation.channelType === 'facebook' && conversation.contact.facebookPsid === incoming.senderId);
+      const activeOpenCount = conversations.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
+      if (!existingConversation && activeOpenCount >= landingLimit) {
+        queueIncomingQuery({
+          id: incoming.eventId || `fb_queue_${incoming.senderId}_${incoming.timestamp}`,
+          name: incoming.senderName || 'Facebook Customer',
+          avatar: '',
+          email: `${incoming.senderId}@facebook.local`,
+          message: incoming.content,
+          channelType: 'facebook',
+          pageName: pages.find((page) => page.id === incoming.pageId)?.name || pages.find((page) => page.channelType === 'facebook')?.name || 'Facebook Support',
+          pageId: incoming.pageId,
+          facebookPsid: incoming.senderId,
+          createdAt,
+          priority: 'medium',
+        });
+        playSoundChime();
+        return;
+      }
       let conversationId = '';
       let nextMessage: Message | null = null;
       setConversations((previous) => {
@@ -1411,7 +1447,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     socket.on('facebook:message', handleFacebookMessage);
     void channelApi.fetchFacebookEvents().then((response) => response.events.forEach(handleFacebookMessage)).catch(() => undefined);
     return () => { socket.off('facebook:message', handleFacebookMessage); socket.disconnect(); };
-  }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, pages, tags]);
+  }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, pages, tags, landingLimit]);
 
   // Receive real WhatsApp text messages without replacing the active selection.
   useEffect(() => {
@@ -1420,6 +1456,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const handleWhatsAppMessage = (incoming: WhatsAppIncomingMessage) => {
       if (isPromotionalMessage(incoming.content, incoming.senderName)) return;
       const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
+      const existingConversation = conversations.find((conversation) => conversation.channelType === 'whatsapp' && conversation.contact.whatsappJid === incoming.senderId);
+      const activeOpenCount = conversations.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
+      if (!existingConversation && activeOpenCount >= landingLimit) {
+        queueIncomingQuery({
+          id: `wa_queue_${incoming.senderId}_${incoming.timestamp}`,
+          name: incoming.senderName || 'WhatsApp Customer',
+          avatar: '',
+          email: `${incoming.senderId}@whatsapp.local`,
+          phone: incoming.senderId.split('@')[0],
+          message: incoming.content,
+          channelType: 'whatsapp',
+          pageName: pages.find((page) => page.channelType === 'whatsapp')?.name || 'WhatsApp Support',
+          pageId: pages.find((page) => page.channelType === 'whatsapp')?.id,
+          whatsappJid: incoming.senderId,
+          createdAt,
+          priority: 'medium',
+        });
+        playSoundChime();
+        return;
+      }
       let conversationId = '';
       let nextMessage: Message | null = null;
 
@@ -1480,7 +1536,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     socket.on('whatsapp:message', handleWhatsAppMessage);
     return () => { socket.off('whatsapp:message', handleWhatsAppMessage); socket.disconnect(); };
-  }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, currentUser.avatar, pages, tags]);
+  }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, currentUser.avatar, pages, tags, landingLimit]);
 
   return (
     <AppContext.Provider

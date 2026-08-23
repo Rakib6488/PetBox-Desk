@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
 import { adminApi } from '../../features/admin/adminApi';
+import { channelApi } from '../../features/channels/channelApi';
 import { whatsappApi, type WhatsAppStatus } from '../../features/whatsapp/whatsappApi';
 import {
   Users,
@@ -39,8 +40,6 @@ const PERMISSIONS: Array<{ label: string; category: 'Configuration' | 'Reporting
 
 export const AdminPortal: React.FC = () => {
   const {
-    currentUser,
-    setCurrentUser,
     users,
     setUsers,
     pages,
@@ -67,13 +66,14 @@ export const AdminPortal: React.FC = () => {
   } = useApp();
 
   const activeTab = adminSubTab;
-  const supportUsers = users.filter((user) => user.role === 'agent' || user.role === 'supervisor');
+  const supportUsers = users.filter((user) => (user.role === 'agent' || user.role === 'supervisor') && user.status !== 'disabled');
+  const managedUsers = users.filter((user) => user.role === 'agent' || user.role === 'supervisor');
+  const getConversationCount = (userId: string) => conversations.filter((conversation) => conversation.assignedAgentId === userId).length;
   const openTickets = conversations.filter((conversation) => conversation.status === 'open').length;
   const activeChannels = pages.filter((page) => page.status === 'active').length;
 
   // Agent modal state
   const [agentModalOpen, setAgentModalOpen] = useState(false);
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [agentName, setAgentName] = useState('');
   const [agentEmail, setAgentEmail] = useState('');
   const [agentPassword, setAgentPassword] = useState('');
@@ -96,7 +96,7 @@ export const AdminPortal: React.FC = () => {
 
   // Facebook connection state
   const [fbConnectModalOpen, setFbConnectModalOpen] = useState(false);
-  const [newFbPageName, setNewFbPageName] = useState('Petbox Customer Hub');
+  const [facebookConnectError, setFacebookConnectError] = useState('');
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({ connected: false });
   const [whatsappQr, setWhatsappQr] = useState('');
   const [whatsappBusy, setWhatsappBusy] = useState(false);
@@ -130,7 +130,6 @@ export const AdminPortal: React.FC = () => {
   );
 
   const openAddAgentModal = () => {
-    setEditingUserId(null);
     setAgentName('');
     setAgentEmail('');
     setAgentPassword('');
@@ -139,19 +138,8 @@ export const AdminPortal: React.FC = () => {
     setAgentModalOpen(true);
   };
 
-  const openEditUserModal = (user: typeof users[number]) => {
-    setEditingUserId(user.id);
-    setAgentName(user.name);
-    setAgentEmail(user.email);
-    setAgentPassword('');
-    setAgentRole(user.role);
-    setAgentError('');
-    setAgentModalOpen(true);
-  };
-
   const closeAgentModal = () => {
     setAgentModalOpen(false);
-    setEditingUserId(null);
     setAgentPassword('');
     setAgentError('');
   };
@@ -160,38 +148,18 @@ export const AdminPortal: React.FC = () => {
     if (!agentName.trim() || !agentEmail.trim()) return;
     setAgentError('');
     try {
-      if (editingUserId) {
-        const { user: updatedUser } = await adminApi.updateUser(editingUserId, { name: agentName.trim(), email: agentEmail.trim(), role: agentRole });
-        setUsers((prev) => prev.map((user) => user.id === updatedUser.id ? updatedUser : user));
-        if (updatedUser.id === currentUser.id) setCurrentUser(updatedUser);
-      } else {
-        if (!agentPassword || agentPassword.length < 8) {
-          setAgentError('Password must be at least 8 characters.');
-          return;
-        }
-        const { user: newAgent } = await adminApi.createUser({ name: agentName.trim(), email: agentEmail.trim(), password: agentPassword, role: agentRole });
-        setUsers((prev) => [...prev.filter((user) => user.id !== newAgent.id), newAgent]);
+      if (!agentPassword || agentPassword.length < 8) {
+        setAgentError('Password must be at least 8 characters.');
+        return;
       }
+      const { user: newAgent } = await adminApi.createUser({ name: agentName.trim(), email: agentEmail.trim(), password: agentPassword, role: agentRole });
+      setUsers((prev) => [...prev.filter((user) => user.id !== newAgent.id), newAgent]);
       closeAgentModal();
     } catch (error: any) {
       setAgentError(error?.message || 'Unable to save user.');
     }
   };
 
-  const handleToggleUserStatus = async (user: typeof users[number]) => {
-    const willDisable = user.status !== 'disabled';
-    const confirmation = willDisable
-      ? `আপনি কি নিশ্চিত ${user.name} কে disable করতে চান? এই ইউজার আর লগইন করতে পারবে না।`
-      : `${user.name} কে আবার enable করতে চান?`;
-    if (!window.confirm(confirmation)) return;
-    setAgentError('');
-    try {
-      const { user: updatedUser } = await adminApi.updateUserStatus(user.id, willDisable ? 'disabled' : 'active');
-      setUsers((prev) => prev.map((item) => item.id === updatedUser.id ? updatedUser : item));
-    } catch (error: any) {
-      setAgentError(error?.message || 'Unable to update user status.');
-    }
-  };
 
   const handleAddTag = () => {
     if (!tagName.trim()) return;
@@ -204,13 +172,20 @@ export const AdminPortal: React.FC = () => {
     setTagName('');
   };
 
-  const handleConnectFbPage = () => {
-    if (!newFbPageName.trim()) return;
+  const handleConnectFbPage = async () => {
+    setFacebookConnectError('');
+    try {
+      const { page } = await channelApi.fetchFacebookPage();
+      if (pages.some((item) => item.id === page.id)) {
+        setFacebookConnectError('This Facebook Page is already connected.');
+        return;
+      }
     addPage({
-      name: newFbPageName.trim(),
+      id: page.id,
+      name: page.name,
       channelType: 'facebook',
-      pageAccessToken: `EAAC...FB_PAGE_TOKEN_${Date.now()}`,
-      webhookVerifyToken: 'verify_token_360',
+      pageAccessToken: '',
+      webhookVerifyToken: '',
       status: 'active',
       autoReplyMessage: 'ধন্যবাদ, আমরা দ্রুতই আপনার সাথে যোগাযোগ করব।',
       settings: {
@@ -218,6 +193,9 @@ export const AdminPortal: React.FC = () => {
       },
     });
     setFbConnectModalOpen(false);
+    } catch (error: any) {
+      setFacebookConnectError(error?.message || 'Unable to verify the Facebook Page.');
+    }
   };
 
   const embedScriptCode = `<script 
@@ -327,7 +305,7 @@ export const AdminPortal: React.FC = () => {
                         {u.status}
                       </span>
                       <span className="font-mono text-slate-500 text-[11px]">
-                        {u.conversationsCount || 0} chats
+                        {getConversationCount(u.id)} chats
                       </span>
                     </div>
                   </div>
@@ -393,11 +371,10 @@ export const AdminPortal: React.FC = () => {
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Conversations Handled</th>
                   <th className="py-3 px-4">Avg Handle Time</th>
-                  <th className="py-3 px-4">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {users.map((u) => (
+                {managedUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50/80">
                     <td className="py-3 px-4 flex items-center gap-2.5">
                       <img src={u.avatar} alt={u.name} className="w-7 h-7 rounded-full object-cover" />
@@ -421,26 +398,10 @@ export const AdminPortal: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3 px-4 font-mono font-bold text-slate-800">
-                      {u.conversationsCount || 0}
+                      {getConversationCount(u.id)}
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-600">
-                      {u.avgHandleTimeMinutes || 3.5} mins
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <button type="button" onClick={() => openEditUserModal(u)} className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
-                          Edit
-                        </button>
-                        {u.id !== currentUser.id && (
-                          <button
-                            type="button"
-                            onClick={() => void handleToggleUserStatus(u)}
-                            className={`rounded-md px-2 py-1 text-[11px] font-semibold ${u.status === 'disabled' ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}
-                          >
-                            {u.status === 'disabled' ? 'Enable' : 'Disable'}
-                          </button>
-                        )}
-                      </div>
+                      {u.avgHandleTimeMinutes ? `${u.avgHandleTimeMinutes} mins` : '—'}
                     </td>
                   </tr>
                 ))}
@@ -479,7 +440,7 @@ export const AdminPortal: React.FC = () => {
               </h3>
 
               <button
-                onClick={() => setFbConnectModalOpen(true)}
+                onClick={() => { setFacebookConnectError(''); setFbConnectModalOpen(true); }}
                 className="px-3 py-1.5 bg-[#1877F2] text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1.5 shadow-xs"
               >
                 <Plus className="w-3.5 h-3.5" /> Connect Facebook Page (OAuth)
@@ -896,7 +857,7 @@ export const AdminPortal: React.FC = () => {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm">{editingUserId ? 'Edit User' : 'Add Support Agent'}</h3>
+              <h3 className="font-bold text-slate-800 text-sm">Add Support Agent</h3>
               <button onClick={closeAgentModal} className="text-slate-400">✕</button>
             </div>
 
@@ -937,7 +898,7 @@ export const AdminPortal: React.FC = () => {
                 </select>
               </div>
 
-              {!editingUserId && <div>
+              <div>
                 <label className="block font-semibold text-slate-700 mb-1">Initial Password</label>
                 <input
                   type="password"
@@ -947,7 +908,7 @@ export const AdminPortal: React.FC = () => {
                   minLength={8}
                   className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                 />
-              </div>}
+              </div>
               {agentError && <p className="text-xs text-rose-600">{agentError}</p>}
             </div>
 
@@ -962,7 +923,7 @@ export const AdminPortal: React.FC = () => {
                 onClick={() => void handleSaveAgent()}
                 className="px-4 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700"
               >
-                {editingUserId ? 'Save Changes' : 'Save Agent'}
+                Save Agent
               </button>
             </div>
           </div>
@@ -1054,14 +1015,8 @@ export const AdminPortal: React.FC = () => {
                 Grant permission for Petbox Desk to receive incoming Messenger webhooks and reply via Facebook Send API.
               </p>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Page Name</label>
-                <input
-                  type="text"
-                  value={newFbPageName}
-                  onChange={(e) => setNewFbPageName(e.target.value)}
-                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                />
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                The connected page name and ID will be read from Meta using the configured Page Access Token.
               </div>
 
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-blue-800 space-y-1">
@@ -1070,6 +1025,7 @@ export const AdminPortal: React.FC = () => {
                 <p>• pages_show_list</p>
                 <p>• pages_read_engagement</p>
               </div>
+              {facebookConnectError && <p className="rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{facebookConnectError}</p>}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">

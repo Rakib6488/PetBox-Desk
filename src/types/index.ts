@@ -126,6 +126,9 @@ export interface WaitingQuery {
   message: string;
   channelType: ChannelType;
   pageName: string;
+  pageId?: string;
+  facebookPsid?: string;
+  whatsappJid?: string;
   createdAt: string;
   priority?: 'urgent' | 'high' | 'medium' | 'low';
   subject?: string;

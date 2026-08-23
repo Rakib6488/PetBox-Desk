@@ -49,6 +49,21 @@ export function createChannelsRouter(io: Server) {
     res.sendStatus(200);
   });
   router.use(requireAuth);
+  router.get('/facebook/page', async (_req, res) => {
+    const accessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+    if (!accessToken) return res.status(503).json({ error: 'Facebook Page Access Token is not configured.' });
+    try {
+      const version = process.env.FACEBOOK_GRAPH_VERSION || 'v20.0';
+      const response = await fetch(`https://graph.facebook.com/${version}/me?fields=id,name&access_token=${encodeURIComponent(accessToken)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error || typeof data.id !== 'string' || typeof data.name !== 'string') {
+        return res.status(502).json({ error: data?.error?.message || 'Unable to verify the configured Facebook Page.' });
+      }
+      res.json({ page: { id: data.id, name: data.name } });
+    } catch (error: any) {
+      res.status(502).json({ error: error?.message || 'Unable to connect to Facebook.' });
+    }
+  });
   router.get('/facebook/events', async (_req, res) => {
     if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
     try {
