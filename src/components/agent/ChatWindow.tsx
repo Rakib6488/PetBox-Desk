@@ -17,7 +17,6 @@ import {
   X,
   Maximize2,
   Facebook,
-  Globe,
   Mail,
   MessageCircle,
   ExternalLink,
@@ -138,7 +137,7 @@ export const ChatWindow: React.FC = () => {
     : selectedConversation.channelType === 'whatsapp'
       ? { label: 'WhatsApp', icon: <MessageCircle className="w-3 h-3" />, color: 'bg-emerald-600' }
     : selectedConversation.channelType === 'live_chat'
-      ? { label: 'Live chat', icon: <Globe className="w-3 h-3" />, color: 'bg-orange-500' }
+      ? { label: 'Live chat', icon: <img src="/petbox-live-chat-logo.svg" alt="Petbox Desk" className="h-3.5 w-3.5 object-contain" />, color: 'bg-[#0B3442]' }
       : { label: 'Messenger', icon: <Facebook className="w-3 h-3" />, color: 'bg-[#1877F2]' };
 
   return (
@@ -151,7 +150,7 @@ export const ChatWindow: React.FC = () => {
             {channelMeta.icon}
           </div>
           <span className="font-bold text-slate-800 text-xs tracking-tight">
-            {selectedConversation.pageName || channelMeta.label}
+            {selectedConversation.channelType === 'live_chat' ? 'Petbox Desk' : selectedConversation.pageName || channelMeta.label}
           </span>
           <span className="text-[10px] text-slate-400">{channelMeta.label}</span>
           {selectedConversation.channelType === 'facebook' && (
