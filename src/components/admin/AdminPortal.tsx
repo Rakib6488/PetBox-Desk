@@ -199,7 +199,7 @@ export const AdminPortal: React.FC = () => {
   };
 
   const embedScriptCode = `<script 
-  src="https://cdn.petboxdesk.com/widget/v1/widget.js" 
+  src="${window.location.origin}/widget/v1/widget.js" 
   data-page-id="${pages[1]?.id || 'page_web_livechat'}" 
   data-theme="${widgetThemeColor}"
   async>
