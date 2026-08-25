@@ -239,7 +239,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const dbHydratedRef = React.useRef(false);
   const skipNextWorkspaceSaveRef = React.useRef(false);
   const workspaceVersionRef = React.useRef(0);
-  const conflictReloadScheduledRef = React.useRef(false);
   const authCheckActiveRef = React.useRef(true);
   const setLandingLimit = (limit: number) => {
     if (!Number.isFinite(limit)) return;
@@ -547,6 +546,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       .catch(() => {
         // Never persist empty/default state when the shared snapshot failed to load.
         dbHydratedRef.current = false;
+        setWorkspaceNotice('Shared workspace data load হয়নি। Connection check করে Refresh চাপুন।');
       });
   }, [isLoggedIn]);
 
@@ -567,10 +567,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             dbHydratedRef.current = false;
             if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
             setWorkspaceNotice('আপনার কিছু পরিবর্তন সেভ হয়নি, অন্য কেউ একই সময়ে আপডেট করেছে — পাতা রিফ্রেশ হচ্ছে');
-            if (!conflictReloadScheduledRef.current) {
-              conflictReloadScheduledRef.current = true;
-              window.setTimeout(() => window.location.reload(), 1400);
-            }
+            setWorkspaceNotice('আপনার পরিবর্তন save হয়নি—অন্য কেউ workspace update করেছে। সর্বশেষ data দেখতে Refresh চাপুন।');
             return;
           }
           console.error('Failed to persist workspace state to PostgreSQL', error);

@@ -78,11 +78,12 @@ emailRouter.get('/fetch', async (req, res) => {
 
 emailRouter.post('/ai-draft', async (req, res) => {
   const { emailSubject = '', emailBody = '', senderName = 'Customer', category = 'General Query' } = req.body || {};
-  const fallback = { draft: `Dear ${senderName},\n\nThank you for contacting customer support regarding "${emailSubject}". Our team is reviewing your request and will respond shortly.\n\nRegards,\nCustomer Support`, summary: `Customer inquiry regarding ${category}`, priority: 'medium', recommendedAction: 'info_needed' };
   try {
     const ai = await getGemini();
-    if (!ai) return res.json({ success: true, isFallback: true, ...fallback });
+    if (!ai) return res.status(503).json({ error: 'Gemini AI is not configured. Add GEMINI_API_KEY before using AI drafts.' });
     const response = await ai.models.generateContent({ model: 'gemini-flash-latest', contents: `Draft a concise professional support email. Sender: ${senderName}. Category: ${category}. Subject: ${emailSubject}. Body: ${emailBody}. Return JSON with draft, summary, priority, recommendedAction.`, config: { responseMimeType: 'application/json' } });
     res.json({ success: true, ...JSON.parse(response.text || '{}') });
-  } catch { res.json({ success: true, isFallback: true, ...fallback }); }
+  } catch (error: any) {
+    res.status(502).json({ error: error?.message || 'Gemini AI draft generation failed.' });
+  }
 });

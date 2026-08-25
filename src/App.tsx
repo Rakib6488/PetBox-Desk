@@ -27,7 +27,7 @@ const MainLayout: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-100 overflow-hidden font-sans text-slate-900">
-      {workspaceNotice && <div role="status" className="fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 rounded-lg bg-amber-900 px-4 py-3 text-xs font-semibold text-white shadow-xl">{workspaceNotice}</div>}
+      {workspaceNotice && <div role="status" className="fixed bottom-4 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-lg bg-amber-900 px-4 py-3 text-xs font-semibold text-white shadow-xl"><span>{workspaceNotice}</span><button type="button" onClick={() => window.location.reload()} className="rounded bg-white/15 px-2 py-1 text-[11px] font-bold hover:bg-white/25">Refresh</button></div>}
       {/* View router switch */}
       {isLoginRoute ? (
         <LoginView />
