@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { PORT } from './src/server/config';
+import { HOST, PORT } from './src/server/config';
 import { checkDatabaseConnection, dbPool } from './src/server/db';
 import { coreRouter } from './src/server/routes/core';
 import { emailRouter } from './src/server/routes/email';
@@ -24,8 +24,10 @@ const io = new SocketIOServer(httpServer, {
   cors: {
     origin: (origin, callback) => {
       const configuredOrigins = (process.env.CLIENT_ORIGIN || '').split(',').map((value) => value.trim()).filter(Boolean);
+      const deploymentOrigin = process.env.APP_URL?.replace(/\/$/, '');
       const localOrigins = [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`, 'http://localhost:3002', 'http://localhost:5173'];
-      if (!origin || [...configuredOrigins, ...localOrigins].includes(origin)) return callback(null, true);
+      if (!origin || [...configuredOrigins, deploymentOrigin, ...localOrigins].filter(Boolean).includes(origin)) return callback(null, true);
+      console.error(`Socket origin rejected: ${origin}`);
       callback(new Error('Socket origin not allowed'));
     },
     credentials: true,
@@ -35,12 +37,19 @@ io.of('/whatsapp').use(async (socket, next) => {
   const cookie = socket.handshake.headers.cookie || '';
   const token = cookie.split(';').map((item) => item.trim()).find((item) => item.startsWith('idesk_session='))?.slice('idesk_session='.length);
   const session = verifySessionToken(token);
-  if (!session || !dbPool) return next(new Error('Authentication required.'));
+  if (!session || !dbPool) {
+    console.error('Socket /whatsapp authentication rejected: missing or invalid session.');
+    return next(new Error('Authentication required.'));
+  }
   try {
     const result = await dbPool.query('SELECT status FROM users WHERE id = $1', [session.userId]);
-    if (!result.rows[0] || result.rows[0].status === 'disabled') return next(new Error('Authentication required.'));
+    if (!result.rows[0] || result.rows[0].status === 'disabled') {
+      console.error('Socket /whatsapp authentication rejected: user missing or disabled.');
+      return next(new Error('Authentication required.'));
+    }
     next();
-  } catch {
+  } catch (error) {
+    console.error('Socket /whatsapp authentication middleware failed:', error);
     next(new Error('Authentication service unavailable.'));
   }
 });
@@ -48,12 +57,24 @@ io.of('/inbox').use(async (socket, next) => {
   const cookie = socket.handshake.headers.cookie || '';
   const token = cookie.split(';').map((item) => item.trim()).find((item) => item.startsWith('idesk_session='))?.slice('idesk_session='.length);
   const session = verifySessionToken(token);
-  if (!session || !dbPool) return next(new Error('Authentication required.'));
+  if (!session || !dbPool) {
+    console.error('Socket /inbox authentication rejected: missing or invalid session.');
+    return next(new Error('Authentication required.'));
+  }
   try {
     const result = await dbPool.query('SELECT status FROM users WHERE id = $1', [session.userId]);
-    if (!result.rows[0] || result.rows[0].status === 'disabled') return next(new Error('Authentication required.'));
+    if (!result.rows[0] || result.rows[0].status === 'disabled') {
+      console.error('Socket /inbox authentication rejected: user missing or disabled.');
+      return next(new Error('Authentication required.'));
+    }
     next();
-  } catch { next(new Error('Authentication service unavailable.')); }
+  } catch (error) {
+    console.error('Socket /inbox authentication middleware failed:', error);
+    next(new Error('Authentication service unavailable.'));
+  }
+});
+io.engine.on('connection_error', (error) => {
+  console.error('Socket.IO handshake failed:', error.message, error.context);
 });
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: '15mb', verify: (req, _res, buffer) => { (req as any).rawBody = buffer; } }));
@@ -84,7 +105,7 @@ async function startServer() {
     app.use(express.static(distPath));
     app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
-  httpServer.listen(PORT, '0.0.0.0', () => console.log(`Petbox Desk server running on http://localhost:${PORT}`));
+  httpServer.listen(PORT, HOST, () => console.log(`Petbox Desk server running on http://${HOST}:${PORT}`));
 }
 
 startServer().catch((error) => {

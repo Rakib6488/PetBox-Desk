@@ -5,7 +5,8 @@ import express from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import { createWhatsAppRouter } from './whatsapp/routes.js';
 
-const port = Number(process.env.PORT || 4000);
+const host = process.env.HOST || '0.0.0.0';
+const port = Number(process.env.PORT || 10000);
 const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 const apiKey = process.env.WHATSAPP_API_KEY;
 if (!apiKey) throw new Error('WHATSAPP_API_KEY is required when running the standalone WhatsApp server.');
@@ -40,6 +41,6 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => console.log(`Socket disconnected: ${socket.id}`));
 });
 
-httpServer.listen(port, '0.0.0.0', () => {
-  console.log(`WhatsApp backend listening on http://localhost:${port}`);
+httpServer.listen(port, host, () => {
+  console.log(`WhatsApp backend listening on http://${host}:${port}`);
 });

@@ -3,7 +3,8 @@ import type { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
-export const PORT = Number(process.env.PORT || 3002);
+export const HOST = process.env.HOST || '0.0.0.0';
+export const PORT = Number(process.env.PORT || 10000);
 
 function normalizePassword(host: string, value: string) {
   return /gmail|googlemail/i.test(host) ? value.replace(/\s+/g, '') : value.trim();

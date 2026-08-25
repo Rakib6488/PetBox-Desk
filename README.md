@@ -17,7 +17,7 @@ Petbox Desk is an omnichannel customer support workspace with agent inbox, email
 3. Run the app:
    `npm run dev`
 
-   This command builds the frontend and starts Petbox Desk on `http://127.0.0.1:3002/`.
+   This command builds the frontend and starts Petbox Desk on `http://0.0.0.0:10000/` (override with `HOST` and `PORT`).
 
 ## Production backend setup
 
@@ -34,6 +34,8 @@ The role and password arguments are required in this command. Passwords must
 be at least 8 characters; there is no default password.
 
 The main protected endpoints are `/api/auth/*`, `/api/state`, `/api/conversations/:id`, `/api/email/*`, and `/api/whatsapp/*`. Authentication uses an HttpOnly session cookie; passwords are hashed with Node.js `scrypt`.
+
+For Render, set `DATABASE_URL`, `SESSION_SECRET`, and `CLIENT_ORIGIN` in the service Environment Variables. The health-check path for the integrated service is `/api/health`; Render supplies the listening `PORT` automatically. `APP_URL` is also accepted as an additional Socket.IO origin.
 
 The integrated root server is protected by the normal session cookie. The standalone WhatsApp server is intended only for trusted internal callers and requires `WHATSAPP_API_KEY`; do not expose it directly to browsers or the public internet.
 
