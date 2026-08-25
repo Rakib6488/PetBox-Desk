@@ -244,9 +244,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [searchQuery, setSearchQuery] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [workspaceNotice, setWorkspaceNotice] = useState('');
-  // Agents start paused after login. Incoming queries may land only after
-  // the agent explicitly presses Resume.
-  const [isAgentPaused, setIsAgentPaused] = useState(true);
+  // Agents are available after login. They can explicitly pause intake from
+  // the inbox control when needed.
+  const [isAgentPaused, setIsAgentPaused] = useState(false);
+  const routeStorageKey = (userId: string) => `petboxdesk:last-route:${userId}`;
   const dbHydratedRef = React.useRef(false);
   const skipNextWorkspaceSaveRef = React.useRef(false);
   const workspaceVersionRef = React.useRef(0);
@@ -286,7 +287,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSelectedConversationId(conversationId);
     if (!conversationId) return;
     const conversation = conversationsRef.current.find((item) => item.id === conversationId);
-    if (conversation?.channelType === 'facebook' || conversation?.channelType === 'whatsapp' || conversation?.channelType === 'email') {
+    if (conversation?.channelType === 'whatsapp' || conversation?.channelType === 'email') {
       markConversationRead(conversationId);
     } else {
       setConversations((previous) => previous.map((item) =>
@@ -491,20 +492,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Function to navigate cleanly between hierarchy routes
-  const navigateTo = (requestedRoute: AppRoute) => {
-    const route = currentUser.role === 'admin' && requestedRoute.startsWith('/agent')
+  const routeForRole = (role: User['role'], requestedRoute: AppRoute): AppRoute => {
+    return role === 'admin' && requestedRoute.startsWith('/agent')
       ? '/admin/dashboard' as AppRoute
-      : currentUser.role !== 'admin' && requestedRoute.startsWith('/admin')
+      : role !== 'admin' && requestedRoute.startsWith('/admin')
         ? '/agent/inbox' as AppRoute
-      : !['admin', 'supervisor', 'bi'].includes(currentUser.role) && requestedRoute.startsWith('/bi/')
+      : !['admin', 'supervisor', 'bi'].includes(role) && requestedRoute.startsWith('/bi/')
         ? '/agent/inbox' as AppRoute
-        : currentUser.role === 'bi' && requestedRoute.startsWith('/agent')
+        : role === 'bi' && requestedRoute.startsWith('/agent')
           ? '/bi/summary' as AppRoute
-          : currentUser.role !== 'admin' && requestedRoute.startsWith('/dev-tools/')
+          : role !== 'admin' && requestedRoute.startsWith('/dev-tools/')
             ? '/agent/inbox' as AppRoute
         : requestedRoute;
+  };
+
+  // Function to navigate cleanly between hierarchy routes
+  const navigateTo = (requestedRoute: AppRoute) => {
+    const route = routeForRole(currentUser.role, requestedRoute);
     setCurrentRoute(route);
+    if (isLoggedIn && route !== '/login') {
+      localStorage.setItem(routeStorageKey(currentUser.id), route);
+    }
 
     if (route === '/login') {
       // Login route
@@ -555,7 +563,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setCurrentUser(user);
     setIsLoggedIn(true);
     setSelectedConversationId(null);
-    setCurrentRoute(user.role === 'admin' ? '/admin/dashboard' : user.role === 'bi' ? '/bi/summary' : '/agent/inbox');
+    const defaultRoute = user.role === 'admin' ? '/admin/dashboard' : user.role === 'bi' ? '/bi/summary' : '/agent/inbox';
+    const savedRoute = localStorage.getItem(routeStorageKey(user.id)) as AppRoute | null;
+    setCurrentRoute(savedRoute ? routeForRole(user.role, savedRoute) : defaultRoute);
     setActiveTab(user.role === 'admin' ? 'admin' : user.role === 'bi' ? 'reports' : 'inbox');
     if (user.role === 'admin') setAdminSubTab('overview');
     addAuditLog('USER_LOGIN', 'User', user.id, `User ${user.name} logged in`);
@@ -577,7 +587,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (mounted && authCheckActiveRef.current && data?.user) {
           setCurrentUser(data.user);
           setIsLoggedIn(true);
-          setCurrentRoute(data.user.role === 'admin' ? '/admin/dashboard' : data.user.role === 'bi' ? '/bi/summary' : '/agent/inbox');
+          const defaultRoute = data.user.role === 'admin' ? '/admin/dashboard' : data.user.role === 'bi' ? '/bi/summary' : '/agent/inbox';
+          const savedRoute = localStorage.getItem(routeStorageKey(data.user.id)) as AppRoute | null;
+          setCurrentRoute(savedRoute ? routeForRole(data.user.role, savedRoute) : defaultRoute);
         }
       })
       .catch(() => undefined);
@@ -626,7 +638,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               return isRecent(latestCustomerAt) && !isOldPromotionalEmail;
             });
             const allowedConversationIds = new Set(cleanConversations.map((conversation: Conversation) => conversation.id));
-            setConversations(cleanConversations
+            const workspaceUsers = Array.isArray(data.users) ? data.users as User[] : [];
+            const knownUserIds = new Set(workspaceUsers.map((user) => user.id));
+            const routedConversations = cleanConversations.map((conversation: Conversation) => {
+              // WhatsApp inbound rows can be persisted before the browser
+              // workspace snapshot has an assignment. Recover those unread
+              // conversations into the current agent's landed inbox after a
+              // refresh; never take a valid assignment from another agent.
+              if (
+                conversation.channelType === 'whatsapp'
+                && conversation.unreadCount > 0
+                && (conversation.status === 'closed' || !conversation.assignedAgentId || !knownUserIds.has(conversation.assignedAgentId))
+              ) {
+                return { ...conversation, assignedAgentId: currentUser.id, assignedAgent: currentUser, status: 'open' as const };
+              }
+              return conversation;
+            });
+            setConversations(routedConversations
               .map((conversation: Conversation) => {
                 const customerMessages = recentMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
                 return customerMessages.length ? { ...conversation, summary: createConversationSummary(conversation, customerMessages) } : conversation;
@@ -693,9 +721,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         .then((saved) => { workspaceVersionRef.current = saved.version; })
         .catch((error: Error & { status?: number }) => {
           if (error.status === 409) {
-            dbHydratedRef.current = false;
+            // Keep the local workspace usable after a concurrent save. The
+            // next save will retry using the latest server version.
+            dbHydratedRef.current = true;
+            void inboxApi.loadState().then((latest) => {
+              if (Number.isInteger(latest?.version)) workspaceVersionRef.current = Number(latest.version);
+            }).catch(() => undefined);
             if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
             setWorkspaceNotice('আপনার পরিবর্তন save হয়নি—অন্য কেউ workspace update করেছে। সর্বশেষ data দেখতে Refresh চাপুন।');
+            setTimeout(() => setWorkspaceNotice(''), 1500);
             return;
           }
           console.error('Failed to persist workspace state to PostgreSQL', error);
@@ -786,7 +820,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!selectedConversationId || !content.trim()) return;
 
     const activeConversation = selectedConversation;
-    const isExternalChannel = activeConversation?.channelType === 'email' || activeConversation?.channelType === 'facebook' || activeConversation?.channelType === 'whatsapp';
+    const isExternalChannel = activeConversation?.channelType === 'email' || activeConversation?.channelType === 'whatsapp';
     const deliveryKey = isExternalChannel ? `${activeConversation?.channelType}:${selectedConversationId}:${messageType}:${content}` : '';
     if (deliveryKey && activeDeliveryKeysRef.current.has(deliveryKey)) return;
     if (deliveryKey) activeDeliveryKeysRef.current.add(deliveryKey);
@@ -813,7 +847,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setMessages((prev) => [...prev, newMessage]);
     const updateDeliveryStatus = (deliveryStatus: 'sent' | 'failed', deliveryError?: string) => setMessages((prev) => prev.map((message) => message.id === newMessage.id ? { ...message, metadata: { ...message.metadata, deliveryStatus, ...(deliveryError ? { deliveryError } : {}) } } : message));
-    const persistMessage = () => inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'live_chat');
+    const persistMessage = () => inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'email');
     if (!isExternalChannel) void persistMessage()
       .then(() => { if (!isExternalChannel) updateDeliveryStatus('sent'); })
       .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('MESSAGE_PERSISTENCE_FAILED', 'Conversation', selectedConversationId, error?.message || 'Unable to save message.'); });
@@ -829,11 +863,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (activeConversation.sourceEmailId) {
           setCustomerEmails((prev) => prev.map((email) => email.id === activeConversation.sourceEmailId ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name } : email));
         }
-        addAuditLog('EMAIL_REPLY_SENT', 'Conversation', selectedConversationId, `Email reply accepted by SMTP for ${activeConversation.contact.email}`);
+        addAuditLog('EMAIL_REPLY_SENT', 'Conversation', selectedConversationId, `Email reply accepted by the configured email provider for ${activeConversation.contact.email}`);
       }).catch((error) => {
-        updateDeliveryStatus('failed', error?.message || 'SMTP delivery failed.');
-        console.error('Failed to send email reply via SMTP', error);
-        addAuditLog('EMAIL_REPLY_FAILED', 'Conversation', selectedConversationId, `Email reply failed for ${activeConversation.contact.email}: ${error?.message || 'SMTP request failed'}`);
+        updateDeliveryStatus('failed', error?.message || 'Email delivery failed.');
+        console.error('Failed to send email reply', error);
+        addAuditLog('EMAIL_REPLY_FAILED', 'Conversation', selectedConversationId, `Email reply failed for ${activeConversation.contact.email}: ${error?.message || 'Email request failed'}`);
       }).finally(finishDelivery);
     } else if (activeConversation?.channelType === 'email') {
       const deliveryError = !activeConversation.contact.email
@@ -1566,58 +1600,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [isLoggedIn, currentUser.id]);
 
-  // Receive real Facebook webhook messages through the authenticated inbox socket.
+  // Receive persisted unread updates for the active Email/WhatsApp channels.
   useEffect(() => {
     if (!isLoggedIn) return;
     const socket = inboxSocketRef.current;
     if (!socket) return;
-    const handleFacebookMessage = (incoming: { conversationId?: string; eventId?: string; senderId: string; senderName: string; content: string; timestamp: number; pageId?: string }) => {
-      if (isPromotionalMessage(incoming.content, incoming.senderName)) return;
-      if (incoming.eventId && messagesRef.current.some((message) => message.id === incoming.eventId)) return;
-      const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
-      const existingConversation = conversationsRef.current.find((conversation) => conversation.channelType === 'facebook' && conversation.contact.facebookPsid === incoming.senderId);
-      const activeOpenCount = conversationsRef.current.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
-      if (!existingConversation && activeOpenCount >= landingLimit) {
-        queueIncomingQuery({
-          id: incoming.eventId || `fb_queue_${incoming.senderId}_${incoming.timestamp}`,
-          name: incoming.senderName || 'Facebook Customer',
-          avatar: '',
-          email: `${incoming.senderId}@facebook.local`,
-          message: incoming.content,
-          channelType: 'facebook',
-          pageName: pages.find((page) => page.id === incoming.pageId)?.name || pages.find((page) => page.channelType === 'facebook')?.name || 'Facebook Support',
-          pageId: incoming.pageId,
-          facebookPsid: incoming.senderId,
-          createdAt,
-          priority: 'medium',
-        });
-        playSoundChime();
-        return;
-      }
-      let conversationId = '';
-      let nextMessage: Message | null = null;
-      setConversations((previous) => {
-        const existing = previous.find((conversation) => conversation.channelType === 'facebook' && conversation.contact.facebookPsid === incoming.senderId);
-        if (existing) {
-          conversationId = existing.id;
-          nextMessage = { id: incoming.eventId || `fb_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: existing.contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: selectedConversationId === conversationId };
-          return previous.map((conversation) => conversation.id === conversationId ? { ...conversation, lastMessageAt: createdAt, lastMessageText: incoming.content, unreadCount: selectedConversationId === conversationId ? 0 : conversation.unreadCount + 1, status: conversation.status === 'closed' ? 'open' : conversation.status, summary: createConversationSummary(conversation, messagesRef.current.filter((message) => message.conversationId === conversationId && message.senderType === 'contact'), nextMessage || undefined) } : conversation);
-        }
-        conversationId = incoming.conversationId || `fb_conv_${Date.now()}`;
-        const contactId = `fb_contact_${incoming.senderId}`;
-        const newConversation: Conversation = { id: conversationId, convUid: `FB-${Date.now()}`, pageId: incoming.pageId || 'facebook', pageName: pages.find((page) => page.channelType === 'facebook')?.name || 'Facebook Support', channelType: 'facebook', contactId, contact: { id: contactId, name: incoming.senderName || 'Facebook Customer', facebookPsid: incoming.senderId, email: '', avatar: '', createdAt }, assignedAgentId: currentUser.id, assignedAgent: currentUser, status: 'open', sentiment: 'neutral', tags: tags.length ? [tags[0]] : [], lastMessageAt: createdAt, lastMessageText: incoming.content, unreadCount: 1, createdAt, priority: 'medium' };
-        nextMessage = { id: incoming.eventId || `fb_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: false };
-        newConversation.summary = createConversationSummary(newConversation, [nextMessage]);
-        return [newConversation, ...previous];
-      });
-      if (nextMessage) setMessages((previous) => [...previous, nextMessage as Message]);
-      if (conversationId) addAuditLog('FACEBOOK_MESSAGE_RECEIVED', 'Conversation', conversationId, `Received Facebook message from ${incoming.senderName}`);
-      playSoundChime();
-    };
-    // Facebook is not an active workspace channel; legacy rows remain stored
-    // for reporting, but no new Facebook messages are mounted in the UI.
     const handleBadgeUpdate = (update: { channel: string; conversationId: string; unreadCount: number }) => {
-      if (!['facebook', 'whatsapp', 'email'].includes(update.channel)) return;
+      if (!['whatsapp', 'email'].includes(update.channel)) return;
       setConversations((previous) => previous.map((conversation) =>
         conversation.id === update.conversationId
           ? { ...conversation, unreadCount: update.unreadCount }
@@ -1626,10 +1615,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     socket.on('badge:update', handleBadgeUpdate);
     return () => {
-      socket.off('facebook:message', handleFacebookMessage);
       socket.off('badge:update', handleBadgeUpdate);
     };
-  }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, pages, tags, landingLimit]);
+  }, [isLoggedIn]);
 
   // Receive real WhatsApp text messages without replacing the active selection.
   useEffect(() => {

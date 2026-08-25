@@ -50,7 +50,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
   const [replySentSuccess, setReplySentSuccess] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
 
-  // Live SMTP/IMAP & AI states
+  // Live Resend/IMAP & AI states
   const [isSyncingImap, setIsSyncingImap] = useState(false);
   const [isSendingSmtp, setIsSendingSmtp] = useState(false);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
@@ -167,7 +167,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
     }
   };
 
-  // Send Reply via SMTP
+  // Send reply via the configured email provider
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmail || !replyText.trim()) return;
@@ -193,14 +193,14 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
         setTimeout(() => setReplySentSuccess(false), 4000);
         showToast(
           'success',
-          `Dispatched live SMTP email to ${selectedEmail.fromEmail} (MessageId: ${data.messageId?.slice(0, 18)}...)`
+          `Dispatched email to ${selectedEmail.fromEmail} (MessageId: ${data.messageId?.slice(0, 18)}...)`
         );
       } else {
-        throw new Error(data.error || 'SMTP server did not accept the email.');
+        throw new Error(data.error || 'Email provider did not accept the email.');
       }
     } catch (err: any) {
       console.error('SMTP reply failed:', err);
-      showToast('error', `Email was not sent: ${err?.message || 'SMTP delivery failed.'}`);
+      showToast('error', `Email was not sent: ${err?.message || 'Email delivery failed.'}`);
     } finally {
       setIsSendingSmtp(false);
     }
@@ -273,11 +273,11 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
           subject: composeForm.subject,
           body: composeForm.body,
       });
-      if (!data.success) throw new Error(data.error || 'SMTP server did not accept the email.');
+      if (!data.success) throw new Error(data.error || 'Email provider did not accept the email.');
       sent = true;
     } catch (err) {
       console.error('SMTP compose failed:', err);
-      showToast('error', `Email was not sent: ${(err as Error)?.message || 'SMTP delivery failed.'}`);
+      showToast('error', `Email was not sent: ${(err as Error)?.message || 'Email delivery failed.'}`);
     } finally {
       setIsSendingSmtp(false);
     }
@@ -343,7 +343,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
               <p className="text-[11px] text-slate-400 flex items-center gap-2">
                 <span>Mailbox: <span className="text-emerald-400 font-mono">rh648888@gmail.com</span></span>
                 <span>•</span>
-                <span className="text-slate-300">SMTP/IMAP: <strong className="text-emerald-300">Active</strong></span>
+                <span className="text-slate-300">Email/IMAP: <strong className="text-emerald-300">Active</strong></span>
               </p>
             </div>
           </div>
@@ -869,7 +869,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
                         className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-xs transition-colors"
                       >
                         <Send className={`w-3.5 h-3.5 ${isSendingSmtp ? 'animate-spin' : ''}`} />
-                        <span>{isSendingSmtp ? 'Sending via SMTP...' : 'Send Live SMTP Response'}</span>
+                    <span>{isSendingSmtp ? 'Sending email...' : 'Send Email Response'}</span>
                       </button>
                     </div>
                   </form>
@@ -890,7 +890,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
               <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
                 <h4 className="text-xs font-bold flex items-center gap-2">
                   <Server className="w-4 h-4 text-emerald-400" />
-                  <span>SMTP & IMAP Mailbox Diagnostics</span>
+                  <span>Email & IMAP Diagnostics</span>
                 </h4>
                 <button
                   onClick={() => setShowDiagnostics(false)}
@@ -903,7 +903,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
               <div className="p-4 space-y-3 text-xs text-slate-700">
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
                   <div className="font-bold text-slate-900 flex items-center justify-between">
-                    <span>SMTP Configuration:</span>
+                  <span>Email provider configuration:</span>
                     <span className="px-2 py-0.5 text-[10px] rounded bg-emerald-100 text-emerald-800 font-mono font-bold">
                       smtp.gmail.com:587
                     </span>
@@ -962,7 +962,7 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
               <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
                 <h4 className="text-xs font-bold flex items-center gap-1.5">
                   <Mail className="w-4 h-4 text-emerald-400" />
-                  <span>Compose Live SMTP Email (From: rh648888@gmail.com)</span>
+                  <span>Compose Email Response</span>
                 </h4>
                 <button
                   onClick={() => setIsComposing(false)}

@@ -52,9 +52,7 @@ export const RightPanel: React.FC = () => {
   }
 
   const contact = selectedConversation.contact;
-  const identity = selectedConversation.channelType === 'facebook'
-    ? { label: 'Facebook ID', value: contact.facebookPsid || 'Not available' }
-    : selectedConversation.channelType === 'whatsapp'
+  const identity = selectedConversation.channelType === 'whatsapp'
       ? { label: 'WhatsApp', value: contact.phone || contact.whatsappJid?.replace(/@s\.whatsapp\.net$/, '') || 'Not available' }
       : { label: 'Email', value: contact.email || (contact.phone ? `Phone: ${contact.phone}` : 'Not available') };
   const historyCount = conversations.filter((conversation) => conversation.contactId === selectedConversation.contactId).length;

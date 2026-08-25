@@ -86,7 +86,7 @@ app.use(requireSameOrigin);
 
 app.get('/api/health', async (_req, res) => {
   const database = await checkDatabaseConnection();
-  res.json({ status: 'ok', database: database.connected ? 'connected' : 'not_configured', hasGeminiKey: Boolean(process.env.GEMINI_API_KEY) });
+  res.json({ status: 'ok', database: database.connected ? 'connected' : 'not_configured' });
 });
 
 app.use('/api', createCoreRouter(io));

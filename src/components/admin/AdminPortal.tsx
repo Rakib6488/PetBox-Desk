@@ -809,14 +809,14 @@ export const AdminPortal: React.FC = () => {
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
             <div>
               <h3 className="font-bold text-slate-800 text-sm">Email & Queue Operations</h3>
-              <p className="mt-1 text-[11px] text-slate-500">Control email ingestion and replies. SMTP/IMAP credentials remain protected in Render Environment Variables.</p>
+              <p className="mt-1 text-[11px] text-slate-500">Control email ingestion and replies. Resend/IMAP credentials remain protected in Render Environment Variables.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {([
                 ['enabled', 'Enable email channel', 'Accept and process customer email queries.'],
                 ['autoSync', 'Automatic IMAP sync', 'Fetch new emails after agent login.'],
                 ['autoLand', 'Auto-land email queries', 'Land emails into active inbox slots when available.'],
-                ['allowReplies', 'Allow email replies', 'Permit agents to send SMTP replies to customers.'],
+                ['allowReplies', 'Allow email replies', 'Permit agents to send email replies to customers.'],
               ] as const).map(([key, label, description]) => (
                 <label key={key} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 cursor-pointer">
                   <span><span className="block font-bold text-slate-800">{label}</span><span className="mt-1 block text-[11px] leading-4 text-slate-500">{description}</span></span>

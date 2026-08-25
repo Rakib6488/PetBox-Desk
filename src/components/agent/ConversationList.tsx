@@ -10,9 +10,7 @@ import {
   Play,
   Paperclip,
   MessageCircle,
-  Facebook,
   Mail,
-  MessageSquare,
 } from 'lucide-react';
 
 export const ConversationList: React.FC = () => {
@@ -171,8 +169,8 @@ export const ConversationList: React.FC = () => {
                   </div>
 
                   {/* Channel badge */}
-                  <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-bold border border-white shadow-2xs ${conv.channelType === 'facebook' ? 'bg-[#1877F2]' : conv.channelType === 'email' ? 'bg-sky-600' : conv.channelType === 'whatsapp' ? 'bg-emerald-600' : 'bg-orange-500'}`}>
-                    {conv.channelType === 'facebook' ? <Facebook className="h-2.5 w-2.5" /> : conv.channelType === 'email' ? <Mail className="h-2.5 w-2.5" /> : conv.channelType === 'whatsapp' ? <MessageCircle className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
+                  <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full text-white flex items-center justify-center text-[9px] font-bold border border-white shadow-2xs ${conv.channelType === 'email' ? 'bg-sky-600' : 'bg-emerald-600'}`}>
+                    {conv.channelType === 'email' ? <Mail className="h-2.5 w-2.5" /> : <MessageCircle className="h-2.5 w-2.5" />}
                   </div>
                 </div>
 

@@ -25,7 +25,6 @@ export const Header: React.FC = () => {
     updateUserStatus,
     currentRoute,
     navigateTo,
-    conversations,
     waitingQueue,
     landingLimit,
     landNextQueryFromQueue,
@@ -39,16 +38,8 @@ export const Header: React.FC = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const realMessageCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => {
-    // TODO(live-chat): Excluded until public/widget/v1/widget.js gains real
-    // message delivery and server-side unread_count persistence. Keep the
-    // queue-based fallback below for the current visual-only widget shell.
-    const persistedUnreadChannels = ['facebook', 'whatsapp', 'email'];
-    if (persistedUnreadChannels.includes(channel)) {
-      return conversations
-        .filter((conversation) => conversation.channelType === channel)
-        .reduce((total, conversation) => total + Math.max(0, conversation.unreadCount || 0), 0);
-    }
-
+    // Channel badges represent only queries waiting to be landed. Once a
+    // query is landed, it must not keep inflating the top-level badge.
     const queuedKeys = new Set<string>();
     const queued = waitingQueue.filter((item) => {
       if (item.channelType !== channel) return false;
@@ -58,11 +49,7 @@ export const Header: React.FC = () => {
       queuedKeys.add(key);
       return true;
     });
-    const unreadLanded = conversations
-      .filter((conversation) => conversation.channelType === channel)
-      .reduce((total, conversation) => total + Math.max(0, conversation.unreadCount || 0), 0);
-
-    return queued.length + unreadLanded;
+    return queued.length;
   };
 
   const openChannel = (channel: 'facebook' | 'email' | 'whatsapp') => {
