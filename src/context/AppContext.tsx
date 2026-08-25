@@ -274,6 +274,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         : conversation
     ));
     void inboxApi.markConversationRead(conversationId).catch((error) => {
+      if (error?.status === 404) {
+        console.debug('Legacy conversation, no persisted unread state to clear:', conversationId);
+        return;
+      }
       console.error('Failed to persist conversation read state:', error);
     });
   };
