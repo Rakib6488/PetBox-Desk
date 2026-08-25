@@ -316,11 +316,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           && normalizeEmailAddress(conversation.contact.email || '') === normalizedEmail
         )
       : undefined;
-    const contactId = existingEmailContactConversation?.contactId
+    const normalizedWhatsAppPhone = item.channelType === 'whatsapp'
+      ? normalizeWhatsAppPhone(item.whatsappJid || item.phone || item.email || '')
+      : '';
+    const existingWhatsAppContactConversation = item.channelType === 'whatsapp'
+      ? conversationsRef.current.find((conversation) =>
+          conversation.channelType === 'whatsapp'
+          && normalizeWhatsAppPhone(conversation.contact.whatsappJid || conversation.contact.phone || '') === normalizedWhatsAppPhone
+        )
+      : undefined;
+    const existingContactConversation = existingEmailContactConversation || existingWhatsAppContactConversation;
+    const contactId = existingContactConversation?.contactId
       || `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const convId = item.channelType === 'email' && item.sourceEmailId
       ? item.conversationId || stableEmailConversationId(item.email, item.sourceEmailId)
-      : `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      : item.channelType === 'whatsapp'
+        ? item.conversationId || `conv_wa_${normalizedWhatsAppPhone}`
+        : `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const convUid =
       Math.random().toString(16).substring(2, 10) +
       Math.random().toString(16).substring(2, 10);
@@ -328,7 +340,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Legacy email conversation IDs remain untouched. New inbound emails
     // use deterministic per-message IDs. Existing contacts are reused by
     // normalized email so CRM notes/tags/history remain connected.
-    const newContact = existingEmailContactConversation?.contact || {
+    const newContact = existingContactConversation?.contact || {
       id: contactId,
       name: item.name,
       facebookPsid: item.facebookPsid || item.email.split('@')[0],
@@ -338,6 +350,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: new Date().toISOString(),
       customerTier: 'Regular' as const,
     };
+    const contact = item.channelType === 'whatsapp' && existingContactConversation?.contact
+      ? { ...newContact, whatsappJid: item.whatsappJid || newContact.whatsappJid, phone: normalizedWhatsAppPhone }
+      : newContact;
 
     const newConv: Conversation = {
       id: convId,
@@ -346,7 +361,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       pageName: item.pageName || 'Petbox',
       channelType: item.channelType || 'facebook',
       contactId: newContact.id,
-      contact: newContact,
+      contact,
       subject: item.subject,
       sourceEmailId: item.sourceEmailId,
       emailMessageId: item.messageId,
@@ -369,8 +384,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: `msg_cust_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       conversationId: convId,
       senderType: 'contact',
-      senderId: newContact.id,
-      senderName: newContact.name,
+      senderId: contact.id,
+      senderName: contact.name,
       content: item.message,
       messageType: 'text',
       createdAt: new Date().toISOString(),
@@ -416,6 +431,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return remaining;
     });
   };
+
+  // Automatically drain the waiting queue when an agent finishes a
+  // conversation and a landing slot becomes available.
+  useEffect(() => {
+    if (!isLoggedIn || isAgentPaused || waitingQueue.length === 0) return;
+    const activeOpenCount = conversations.filter(
+      (conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id
+    ).length;
+    if (activeOpenCount < landingLimit) landNextQueryFromQueue();
+  }, [isLoggedIn, isAgentPaused, waitingQueue.length, conversations, landingLimit, currentUser.id]);
 
   // Drop incoming query: Only max 2 active queries land for the agent at a time; others stay in waiting queue
   const dropNextIncomingQuery = () => {
