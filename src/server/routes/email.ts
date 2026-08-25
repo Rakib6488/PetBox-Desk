@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { requireAuth } from '../auth';
-import { getGemini, imapConfig, smtpConfig, smtpTransportConfig } from '../config';
+import { getGemini, imapConfig, resendConfig, smtpConfig, smtpTransportConfig } from '../config';
 import { dbPool } from '../db';
 import type { Server as SocketIOServer } from 'socket.io';
 
@@ -62,6 +62,44 @@ emailRouter.post('/test-connection', async (_req, res) => {
 emailRouter.post('/send', async (req, res) => {
   const { to, subject, body, html, inReplyTo, references } = req.body || {};
   if (!to || !subject || (!body && !html)) return res.status(400).json({ error: 'to, subject and body/html are required.' });
+
+  const resend = resendConfig();
+  if (resend.apiKey && resend.from) {
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${resend.apiKey}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'Petbox-Desk/1.0',
+        },
+        body: JSON.stringify({
+          from: resend.from,
+          to: [to],
+          subject,
+          text: body || undefined,
+          html: html || undefined,
+          headers: {
+            ...(inReplyTo ? { 'In-Reply-To': inReplyTo } : {}),
+            ...(references ? { References: references } : {}),
+          },
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        console.error('Resend email delivery failed:', {
+          status: response.status,
+          error: data?.message || data?.error || data,
+        });
+        return res.status(502).json({ error: data?.message || data?.error || `Resend request failed (${response.status})` });
+      }
+      return res.json({ success: true, messageId: data?.id, sentAt: new Date().toISOString(), provider: 'resend' });
+    } catch (error: any) {
+      console.error('Resend email request failed:', { message: error?.message || error, code: error?.code });
+      return res.status(502).json({ error: error?.message || 'Resend email request failed.' });
+    }
+  }
+
   const smtp = smtpConfig();
   if (!smtp.host || !smtp.auth.user || !smtp.auth.pass) return res.status(503).json({ error: 'SMTP is not configured.' });
   const transport = await smtpTransportConfig();

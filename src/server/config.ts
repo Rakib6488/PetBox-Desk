@@ -31,6 +31,11 @@ export const smtpConfig = () => {
   };
 };
 
+export const resendConfig = () => ({
+  apiKey: process.env.RESEND_API_KEY || '',
+  from: process.env.RESEND_FROM || process.env.SMTP_FROM || process.env.SMTP_USER || '',
+});
+
 export async function smtpTransportConfig() {
   const config = smtpConfig();
   if (!config.host || net.isIP(config.host)) return config;
