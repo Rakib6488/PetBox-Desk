@@ -26,6 +26,14 @@ import { channelApi } from '../features/channels/channelApi';
 import { whatsappApi, normalizeWhatsAppPhone, type WhatsAppIncomingMessage } from '../features/whatsapp/whatsappApi';
 import type { Socket } from 'socket.io-client';
 
+function normalizeEmailAddress(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function stableEmailConversationId(email: string, sourceEmailId: string): string {
+  return `conv_email_${encodeURIComponent(normalizeEmailAddress(email))}_${encodeURIComponent(sourceEmailId)}`;
+}
+
 export type ActiveNavTab =
   | 'inbox'
   | 'assigned'
@@ -274,7 +282,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSelectedConversationId(conversationId);
     if (!conversationId) return;
     const conversation = conversationsRef.current.find((item) => item.id === conversationId);
-    if (conversation?.channelType === 'facebook' || conversation?.channelType === 'whatsapp') {
+    if (conversation?.channelType === 'facebook' || conversation?.channelType === 'whatsapp' || conversation?.channelType === 'email') {
       markConversationRead(conversationId);
     } else {
       setConversations((previous) => previous.map((item) =>
@@ -297,13 +305,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const landedAt = new Date();
     const landedAtIso = landedAt.toISOString();
-    const contactId = `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const convId = `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const normalizedEmail = normalizeEmailAddress(item.email);
+    const existingEmailContactConversation = item.channelType === 'email'
+      ? conversationsRef.current.find((conversation) =>
+          conversation.channelType === 'email'
+          && normalizeEmailAddress(conversation.contact.email || '') === normalizedEmail
+        )
+      : undefined;
+    const contactId = existingEmailContactConversation?.contactId
+      || `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const convId = item.channelType === 'email' && item.sourceEmailId
+      ? item.conversationId || stableEmailConversationId(item.email, item.sourceEmailId)
+      : `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const convUid =
       Math.random().toString(16).substring(2, 10) +
       Math.random().toString(16).substring(2, 10);
 
-    const newContact: Contact = {
+    // Legacy email conversation IDs remain untouched. New inbound emails
+    // use deterministic per-message IDs. Existing contacts are reused by
+    // normalized email so CRM notes/tags/history remain connected.
+    const newContact = existingEmailContactConversation?.contact || {
       id: contactId,
       name: item.name,
       facebookPsid: item.facebookPsid || item.email.split('@')[0],
@@ -311,7 +332,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       email: item.email,
       avatar: item.avatar,
       createdAt: new Date().toISOString(),
-      customerTier: 'Regular',
+      customerTier: 'Regular' as const,
     };
 
     const newConv: Conversation = {
@@ -623,6 +644,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Persist every workspace change to PostgreSQL. No browser storage fallback is used.
   const saveStateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workspaceSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     if (!isLoggedIn || !dbHydratedRef.current) return;
     if (skipNextWorkspaceSaveRef.current) {
@@ -631,18 +653,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
     saveStateTimerRef.current = setTimeout(() => {
-      void inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings }, workspaceVersionRef.current)
+      workspaceSaveQueueRef.current = workspaceSaveQueueRef.current.then(async () => {
+        if (!dbHydratedRef.current) return;
+        await inboxApi.saveState({ users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings }, workspaceVersionRef.current)
         .then((saved) => { workspaceVersionRef.current = saved.version; })
         .catch((error: Error & { status?: number }) => {
           if (error.status === 409) {
             dbHydratedRef.current = false;
             if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current);
-            setWorkspaceNotice('আপনার কিছু পরিবর্তন সেভ হয়নি, অন্য কেউ একই সময়ে আপডেট করেছে — পাতা রিফ্রেশ হচ্ছে');
             setWorkspaceNotice('আপনার পরিবর্তন save হয়নি—অন্য কেউ workspace update করেছে। সর্বশেষ data দেখতে Refresh চাপুন।');
             return;
           }
           console.error('Failed to persist workspace state to PostgreSQL', error);
         });
+      });
     }, 300);
     return () => { if (saveStateTimerRef.current) clearTimeout(saveStateTimerRef.current); };
   }, [isLoggedIn, users, pages, tags, quickResponses, conversations, messages, slaRules, auditLogs, waitingQueue, customerEmails, landingLimit, emailSettings]);
@@ -1203,6 +1227,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAuditLog('SLA_RULE_UPDATE', 'SLARule', id, 'Updated SLA configuration');
   };
 
+  // TODO(live-chat): Keep timestamp-based IDs until public/widget/v1/widget.js
+  // becomes a real messaging client. It is currently only a visual shell with
+  // no visitor session ID or inbound message delivery path.
   // Helper to create a live chat conversation on the fly from visitor widget
   const createLiveChatVisitorConversation = (visitorName: string, initialMsg: string, email?: string): string => {
     const contactId = `contact_visitor_${Date.now()}`;
@@ -1432,6 +1459,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           sourceEmailId: email.id,
           messageId: email.messageId,
           references: email.references,
+          conversationId: email.conversationId,
         }));
 
       let activeOpenCount = conversationsRef.current.filter(
@@ -1565,7 +1593,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     socket.on('facebook:message', handleFacebookMessage);
     const handleBadgeUpdate = (update: { channel: string; conversationId: string; unreadCount: number }) => {
-      if (update.channel !== 'facebook') return;
+      if (!['facebook', 'whatsapp', 'email'].includes(update.channel)) return;
       setConversations((previous) => previous.map((conversation) =>
         conversation.id === update.conversationId
           ? { ...conversation, unreadCount: update.unreadCount }

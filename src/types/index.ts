@@ -119,6 +119,7 @@ export interface Message {
 
 export interface WaitingQuery {
   id: string;
+  conversationId?: string;
   name: string;
   avatar: string;
   email: string;
@@ -139,6 +140,7 @@ export interface WaitingQuery {
 
 export interface CustomerEmail {
   id: string;
+  conversationId?: string;
   ticketNumber: string; // e.g. NGD-EML-48201
   fromName: string;
   fromEmail: string;

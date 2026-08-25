@@ -274,11 +274,13 @@ coreRouter.post('/conversations/:id/read', requireAuth, async (req, res) => {
       conversationId: conversation.id,
       unreadCount: Number(conversation.unread_count),
     });
-    io.of('/whatsapp').emit('badge:update', {
-      channel: conversation.channel,
-      conversationId: conversation.id,
-      unreadCount: Number(conversation.unread_count),
-    });
+    if (conversation.channel === 'whatsapp') {
+      io.of('/whatsapp').emit('badge:update', {
+        channel: conversation.channel,
+        conversationId: conversation.id,
+        unreadCount: Number(conversation.unread_count),
+      });
+    }
     res.json({ success: true });
   } catch (error) {
     console.error('Conversation read update failed:', error);
@@ -310,24 +312,26 @@ coreRouter.post('/conversations/:id/messages', requireAuth, requireRole('admin',
     );
     const conversationUpdate = await dbPool.query(
       `UPDATE conversations
-       SET unread_count = CASE WHEN $2 IN ('facebook', 'whatsapp') THEN 0 ELSE unread_count END,
+       SET unread_count = CASE WHEN $2 IN ('facebook', 'whatsapp', 'email') THEN 0 ELSE unread_count END,
            updated_at = NOW()
        WHERE id = $1
        RETURNING id, channel, unread_count`,
       [req.params.id, safeChannel]
     );
-    if (['facebook', 'whatsapp'].includes(safeChannel) && conversationUpdate.rowCount) {
+    if (['facebook', 'whatsapp', 'email'].includes(safeChannel) && conversationUpdate.rowCount) {
       const conversation = conversationUpdate.rows[0];
       io.of('/inbox').emit('badge:update', {
         channel: conversation.channel,
         conversationId: conversation.id,
         unreadCount: Number(conversation.unread_count),
       });
-      io.of('/whatsapp').emit('badge:update', {
-        channel: conversation.channel,
-        conversationId: conversation.id,
-        unreadCount: Number(conversation.unread_count),
-      });
+      if (conversation.channel === 'whatsapp') {
+        io.of('/whatsapp').emit('badge:update', {
+          channel: conversation.channel,
+          conversationId: conversation.id,
+          unreadCount: Number(conversation.unread_count),
+        });
+      }
     }
     res.status(201).json({ message: result.rows[0] });
   } catch (error: any) {

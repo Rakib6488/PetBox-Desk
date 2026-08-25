@@ -4,9 +4,20 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { requireAuth } from '../auth';
 import { getGemini, imapConfig, smtpConfig } from '../config';
+import { dbPool } from '../db';
+import type { Server as SocketIOServer } from 'socket.io';
 
-export const emailRouter = Router();
+export function createEmailRouter(io: SocketIOServer) {
+const emailRouter = Router();
 emailRouter.use(requireAuth);
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function stableEmailConversationId(email: string, sourceEmailId: string): string {
+  return `conv_email_${encodeURIComponent(normalizeEmail(email))}_${encodeURIComponent(sourceEmailId)}`;
+}
 
 const SMTP_RETRY_DELAY_MS = 750;
 const SMTP_RETRYABLE_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ESOCKET', 'SMTP_ETIMEDOUT']);
@@ -109,7 +120,40 @@ emailRouter.get('/fetch', async (req, res) => {
           const from = parsed.from?.value?.[0];
           const receivedAt = message.internalDate instanceof Date ? message.internalDate.toISOString() : message.internalDate || new Date().toISOString();
           const body = parsed.text || (typeof parsed.html === 'string' ? parsed.html.replace(/<[^>]+>/g, ' ') : '');
-          emails.push({ id: `imap_${message.uid || message.seq}`, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body, preview: body.slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '' });
+          const emailRecord = { id: `imap_${message.uid || message.seq}`, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body, preview: body.slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '' };
+          const conversationId = emailRecord.fromEmail
+            ? stableEmailConversationId(emailRecord.fromEmail, emailRecord.id)
+            : undefined;
+
+          if (dbPool && conversationId) {
+            try {
+              const persisted = await dbPool.query(
+                `INSERT INTO conversations
+                   (id, channel, status, unread_count, updated_at)
+                 VALUES ($1, 'email', 'open', $2, NOW())
+                 ON CONFLICT (id) DO NOTHING
+                 RETURNING id, unread_count`,
+                [conversationId, emailRecord.isRead ? 0 : 1],
+              );
+              if (persisted.rowCount && !emailRecord.isRead) {
+                io.of('/inbox').emit('badge:update', {
+                  channel: 'email',
+                  conversationId,
+                  unreadCount: Number(persisted.rows[0].unread_count),
+                });
+              }
+            } catch (error) {
+              console.error('Failed to persist inbound email unread state:', {
+                error: error instanceof Error ? error.message : error,
+                conversationId,
+                sourceEmailId: emailRecord.id,
+              });
+            }
+          } else if (!dbPool) {
+            console.error('DATABASE_URL is not configured; delivering email without unread persistence.');
+          }
+
+          emails.push({ ...emailRecord, conversationId });
         }
       }
     } finally { lock.release(); await client.logout(); }
@@ -128,3 +172,6 @@ emailRouter.post('/ai-draft', async (req, res) => {
     res.status(502).json({ error: error?.message || 'Gemini AI draft generation failed.' });
   }
 });
+
+return emailRouter;
+}
