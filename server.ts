@@ -1,4 +1,5 @@
 import path from 'node:path';
+import dns from 'node:dns';
 import { createServer as createHttpServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -14,6 +15,10 @@ import { createChannelsRouter } from './src/server/routes/channels';
 import { requireAuth, requireSameOrigin, verifySessionToken } from './src/server/auth';
 import { Server as SocketIOServer } from 'socket.io';
 import { createWhatsAppRouter } from './server/src/whatsapp/routes';
+
+// Render may resolve Gmail SMTP hosts to IPv6 addresses while outbound IPv6
+// routing is unavailable. Prefer IPv4 for all DNS lookups.
+dns.setDefaultResultOrder('ipv4first');
 
 dotenv.config();
 

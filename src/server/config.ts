@@ -20,6 +20,7 @@ export const smtpConfig = () => {
     host,
     port,
     secure,
+    family: 4,
     auth: { user: process.env.SMTP_USER || '', pass: normalizePassword(host, process.env.SMTP_PASS || '') },
     from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
     connectionTimeout: 10000,
