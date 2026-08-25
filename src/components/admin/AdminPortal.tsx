@@ -63,6 +63,7 @@ export const AdminPortal: React.FC = () => {
     assignConversation,
     adminSubTab,
     navigateTo,
+    whatsappSocket,
   } = useApp();
 
   const activeTab = adminSubTab;
@@ -103,13 +104,20 @@ export const AdminPortal: React.FC = () => {
   const [whatsappError, setWhatsappError] = useState('');
 
   useEffect(() => {
-    const socket = whatsappApi.socket();
+    if (!whatsappSocket) return;
     void whatsappApi.status().then(setWhatsappStatus).catch(() => undefined);
-    socket.on('whatsapp:qr', (dataUrl: string) => { setWhatsappQr(dataUrl); setWhatsappError(''); });
-    socket.on('whatsapp:connected', (status: WhatsAppStatus) => { setWhatsappStatus({ connected: true, phoneNumber: status.phoneNumber }); setWhatsappQr(''); setWhatsappBusy(false); });
-    socket.on('whatsapp:disconnected', () => { setWhatsappStatus({ connected: false }); setWhatsappQr(''); setWhatsappBusy(false); });
-    return () => { socket.disconnect(); };
-  }, []);
+    const handleQr = (dataUrl: string) => { setWhatsappQr(dataUrl); setWhatsappError(''); };
+    const handleConnected = (status: WhatsAppStatus) => { setWhatsappStatus({ connected: true, phoneNumber: status.phoneNumber }); setWhatsappQr(''); setWhatsappBusy(false); };
+    const handleDisconnected = () => { setWhatsappStatus({ connected: false }); setWhatsappQr(''); setWhatsappBusy(false); };
+    whatsappSocket.on('whatsapp:qr', handleQr);
+    whatsappSocket.on('whatsapp:connected', handleConnected);
+    whatsappSocket.on('whatsapp:disconnected', handleDisconnected);
+    return () => {
+      whatsappSocket.off('whatsapp:qr', handleQr);
+      whatsappSocket.off('whatsapp:connected', handleConnected);
+      whatsappSocket.off('whatsapp:disconnected', handleDisconnected);
+    };
+  }, [whatsappSocket]);
 
   const handleWhatsAppConnect = async () => {
     setWhatsappBusy(true);

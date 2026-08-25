@@ -11,6 +11,14 @@ export const channelApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  socket: (): Socket => io(`${backendUrl}/inbox`, { transports: ['polling', 'websocket'], withCredentials: true }),
+  socket: (): Socket => io(`${backendUrl}/inbox`, {
+    transports: ['polling', 'websocket'],
+    withCredentials: true,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 10000,
+    randomizationFactor: 0.5,
+  }),
   fetchFacebookEvents: () => apiRequest<{ events: Array<{ eventId: string; senderId: string; senderName: string; content: string; timestamp: number; pageId?: string }> }>('/api/channels/facebook/events'),
 };

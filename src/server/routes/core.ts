@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
+import type { Server } from 'socket.io';
 import { checkDatabaseConnection, dbPool } from '../db';
 import { clearSessionCookie, createSessionToken, hashPassword, requireAuth, requireRole, setSessionCookie, verifyPassword } from '../auth';
 
-export const coreRouter = Router();
 const validUserRoles = ['admin', 'supervisor', 'agent', 'bi'] as const;
 const loginFailures = new Map<string, { count: number; resetAt: number }>();
 const loginWindowMs = 15 * 60 * 1000;
@@ -13,6 +13,9 @@ setInterval(() => {
   const now = Date.now();
   for (const [key, value] of loginFailures) if (value.resetAt <= now) loginFailures.delete(key);
 }, loginWindowMs).unref();
+
+export function createCoreRouter(io: Server) {
+const coreRouter = Router();
 
 coreRouter.get('/db/health', async (_req, res) => {
   const database = await checkDatabaseConnection();
@@ -254,6 +257,35 @@ coreRouter.patch('/conversations/:id', requireAuth, requireRole('admin', 'superv
   }
 });
 
+coreRouter.post('/conversations/:id/read', requireAuth, async (req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+  try {
+    const result = await dbPool.query(
+      `UPDATE conversations
+       SET unread_count = 0, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, channel, unread_count`,
+      [req.params.id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Conversation not found.' });
+    const conversation = result.rows[0];
+    io.of('/inbox').emit('badge:update', {
+      channel: conversation.channel,
+      conversationId: conversation.id,
+      unreadCount: Number(conversation.unread_count),
+    });
+    io.of('/whatsapp').emit('badge:update', {
+      channel: conversation.channel,
+      conversationId: conversation.id,
+      unreadCount: Number(conversation.unread_count),
+    });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Conversation read update failed:', error);
+    res.status(503).json({ error: 'Unable to mark conversation as read.' });
+  }
+});
+
 coreRouter.post('/conversations/:id/messages', requireAuth, requireRole('admin', 'supervisor', 'agent'), async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   const { content, messageType = 'text', channel = 'live_chat' } = req.body || {};
@@ -276,10 +308,33 @@ coreRouter.post('/conversations/:id/messages', requireAuth, requireRole('admin',
        RETURNING id, conversation_id AS "conversationId", sender_type AS "senderType", sender_id AS "senderId", content, message_type AS "messageType", created_at AS "createdAt"`,
       [`msg_${crypto.randomUUID()}`, req.params.id, res.locals.user.id, content.trim(), messageType]
     );
-    await dbPool.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [req.params.id]);
+    const conversationUpdate = await dbPool.query(
+      `UPDATE conversations
+       SET unread_count = CASE WHEN $2 IN ('facebook', 'whatsapp') THEN 0 ELSE unread_count END,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, channel, unread_count`,
+      [req.params.id, safeChannel]
+    );
+    if (['facebook', 'whatsapp'].includes(safeChannel) && conversationUpdate.rowCount) {
+      const conversation = conversationUpdate.rows[0];
+      io.of('/inbox').emit('badge:update', {
+        channel: conversation.channel,
+        conversationId: conversation.id,
+        unreadCount: Number(conversation.unread_count),
+      });
+      io.of('/whatsapp').emit('badge:update', {
+        channel: conversation.channel,
+        conversationId: conversation.id,
+        unreadCount: Number(conversation.unread_count),
+      });
+    }
     res.status(201).json({ message: result.rows[0] });
   } catch (error: any) {
     console.error('Message persistence failed:', error?.message || error);
     res.status(503).json({ error: 'Unable to save the message.' });
   }
 });
+
+return coreRouter;
+}

@@ -3,7 +3,13 @@ import { io, type Socket } from 'socket.io-client';
 const backendUrl = import.meta.env.VITE_WHATSAPP_BACKEND_URL || window.location.origin;
 
 export type WhatsAppStatus = { connected: boolean; phoneNumber?: string };
-export type WhatsAppIncomingMessage = { senderId: string; senderName: string; content: string; timestamp: number };
+export type WhatsAppIncomingMessage = { messageId?: string; conversationId?: string; senderId: string; senderName: string; content: string; timestamp: number };
+
+export function normalizeWhatsAppPhone(senderId: string): string {
+  const withoutSuffix = senderId.trim().toLowerCase().replace(/@(s\.whatsapp\.net|c\.us|lid)$/i, '');
+  const withoutDevice = withoutSuffix.split(':')[0];
+  return withoutDevice.replace(/\D/g, '') || 'unknown';
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${backendUrl}${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }, ...init });
@@ -18,5 +24,13 @@ export const whatsappApi = {
   disconnect: () => request<{ ok: boolean }>('/api/whatsapp/disconnect', { method: 'POST' }),
   send: (jid: string, text: string) => request<{ ok: boolean }>('/api/whatsapp/send', { method: 'POST', body: JSON.stringify({ jid, text }) }),
   sendVoice: (jid: string, audio: string, mimetype = 'audio/webm') => request<{ ok: boolean }>('/api/whatsapp/send-voice', { method: 'POST', body: JSON.stringify({ jid, audio, mimetype }) }),
-  socket: (): Socket => io(`${backendUrl}/whatsapp`, { transports: ['polling', 'websocket'], withCredentials: true }),
+  socket: (): Socket => io(`${backendUrl}/whatsapp`, {
+    transports: ['polling', 'websocket'],
+    withCredentials: true,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 10000,
+    randomizationFactor: 0.5,
+  }),
 };

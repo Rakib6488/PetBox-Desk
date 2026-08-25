@@ -42,8 +42,66 @@ export function createChannelsRouter(io: Server) {
       const pageId = String(event.recipient?.id || '');
       void (async () => {
         const senderName = await resolveFacebookSenderName(senderId);
-        await dbPool?.query('INSERT INTO facebook_inbox_events (id, sender_id, sender_name, content, page_id, event_at) VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0)) ON CONFLICT (id) DO NOTHING', [eventId, senderId, senderName, text, pageId, timestamp]);
-        io.of('/inbox').emit('facebook:message', { eventId, senderId, senderName, content: text, timestamp, pageId });
+        const conversationId = `conv_fb_${pageId || 'unknown'}_${senderId}`;
+        let unreadCount: number | undefined;
+
+        if (dbPool) {
+          let eventInsert;
+          try {
+            eventInsert = await dbPool.query(
+              `INSERT INTO facebook_inbox_events
+                 (id, sender_id, sender_name, content, page_id, event_at)
+               VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0))
+               ON CONFLICT (id) DO NOTHING
+               RETURNING id`,
+              [eventId, senderId, senderName, text, pageId, timestamp]
+            );
+          } catch (error) {
+            console.error('Facebook event persistence failed; delivering live message without DB state:', error);
+          }
+
+          // Only a defined result with rowCount === 0 is a confirmed duplicate.
+          // A missing result means the database write failed, so the live event
+          // must still reach connected agents.
+          if (eventInsert && eventInsert.rowCount === 0) return;
+
+          try {
+            const conversationResult = await dbPool.query(
+              `INSERT INTO conversations
+                 (id, channel, status, unread_count, updated_at)
+               VALUES ($1, 'facebook', 'open', 1, NOW())
+               ON CONFLICT (id)
+               DO UPDATE SET
+                 unread_count = conversations.unread_count + 1,
+                 status = 'open',
+                 updated_at = NOW()
+               RETURNING id, unread_count`,
+              [conversationId]
+            );
+            unreadCount = Number(conversationResult.rows[0]?.unread_count || 0);
+          } catch (error) {
+            console.error('Facebook unread state persistence failed; delivering live message without badge persistence:', error);
+          }
+        } else {
+          console.error('DATABASE_URL is not configured; delivering Facebook message without persistence.');
+        }
+
+        io.of('/inbox').emit('facebook:message', {
+          conversationId,
+          eventId,
+          senderId,
+          senderName,
+          content: text,
+          timestamp,
+          pageId,
+        });
+        if (unreadCount !== undefined) {
+          io.of('/inbox').emit('badge:update', {
+            channel: 'facebook',
+            conversationId,
+            unreadCount,
+          });
+        }
       })().catch((error) => console.error('Facebook event persistence failed:', error?.message || error));
     });
     res.sendStatus(200);

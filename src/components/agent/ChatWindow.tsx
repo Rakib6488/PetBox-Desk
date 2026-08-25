@@ -56,6 +56,9 @@ export const ChatWindow: React.FC = () => {
   useEffect(() => {
     setActiveTag(null);
     setTagSelectionError('');
+    // Drafts belong to one conversation only. Never carry a sent or stale
+    // reply into another customer's composer.
+    setDraftMessage('');
     if (selectedConversation) {
       if (selectedConversation.sentiment) {
         setSelectedSentiment(selectedConversation.sentiment);
@@ -84,8 +87,8 @@ export const ChatWindow: React.FC = () => {
       return;
     }
     const text = draftMessage.trim();
-    sendMessage(text);
     setDraftMessage('');
+    sendMessage(text);
 
     if (textareaRef.current) {
       textareaRef.current.focus();
@@ -102,8 +105,12 @@ export const ChatWindow: React.FC = () => {
 
   const handleEndTicket = () => {
     if (activeTag) {
-      endConversation(selectedConversation.id, activeTag, selectedSentiment);
+      const ended = endConversation(selectedConversation.id, activeTag, selectedSentiment);
+      if (ended) setDraftMessage('');
+      return;
     }
+    setTagSelectionError('Select a category before ending the conversation.');
+    setTagDropdownOpen(true);
   };
 
   const handleRealVoiceRecord = () => {

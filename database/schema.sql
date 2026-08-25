@@ -30,9 +30,29 @@ CREATE TABLE IF NOT EXISTS conversations (
   channel TEXT NOT NULL CHECK (channel IN ('facebook', 'live_chat', 'email', 'whatsapp')),
   status TEXT NOT NULL DEFAULT 'open',
   subject TEXT,
+  unread_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS unread_count INTEGER NOT NULL DEFAULT 0;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'conversations_unread_count_nonnegative'
+  ) THEN
+    ALTER TABLE conversations
+      ADD CONSTRAINT conversations_unread_count_nonnegative
+      CHECK (unread_count >= 0);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_conversations_channel_unread
+  ON conversations(channel, unread_count, updated_at);
 
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,

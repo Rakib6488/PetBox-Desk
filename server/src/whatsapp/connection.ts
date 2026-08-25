@@ -9,6 +9,7 @@ import makeWASocket, {
 import pino from 'pino';
 import { toDataURL } from 'qrcode';
 import type { Server as SocketIOServer } from 'socket.io';
+import { dbPool } from '../../../src/server/db.js';
 
 export type WhatsAppStatus = {
   connected: boolean;
@@ -16,11 +17,19 @@ export type WhatsAppStatus = {
 };
 
 export type WhatsAppIncomingMessage = {
+  messageId: string;
+  conversationId: string;
   senderId: string;
   senderName: string;
   content: string;
   timestamp: number;
 };
+
+function normalizeWhatsAppPhone(senderId: string): string {
+  const withoutSuffix = senderId.trim().toLowerCase().replace(/@(s\.whatsapp\.net|c\.us|lid)$/i, '');
+  const withoutDevice = withoutSuffix.split(':')[0];
+  return withoutDevice.replace(/\D/g, '') || 'unknown';
+}
 
 const authDirectory = fileURLToPath(new URL('../../auth_sessions', import.meta.url));
 const logger = pino({ level: process.env.WHATSAPP_LOG_LEVEL || 'silent' });
@@ -37,6 +46,12 @@ const processedMessageIds = new Map<string, number>();
 function emit(io: SocketIOServer, event: string, payload?: unknown) {
   io.emit(event, payload);
   io.of('/whatsapp').emit(event, payload);
+}
+
+function emitBadgeUpdate(io: SocketIOServer, conversationId: string, unreadCount: number) {
+  const payload = { channel: 'whatsapp', conversationId, unreadCount };
+  io.of('/whatsapp').emit('badge:update', payload);
+  io.of('/inbox').emit('badge:update', payload);
 }
 
 function getDisconnectCode(error: unknown): number | undefined {
@@ -123,7 +138,7 @@ async function connect(io: SocketIOServer): Promise<void> {
     }, delay);
   });
 
-  nextSocket.ev.on('messages.upsert', ({ messages, type }) => {
+  nextSocket.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const message of messages) {
       if (message.key.fromMe || !message.key.remoteJid) continue;
@@ -145,12 +160,38 @@ async function connect(io: SocketIOServer): Promise<void> {
       }
 
       const normalized: WhatsAppIncomingMessage = {
+        messageId,
+        conversationId: `conv_wa_${normalizeWhatsAppPhone(message.key.remoteJid)}`,
         senderId: message.key.remoteJid,
         senderName: message.pushName || message.key.remoteJid.split('@')[0],
         content,
         timestamp: Number(message.messageTimestamp || Math.floor(Date.now() / 1000)) * 1000,
       };
+
+      let unreadCount: number | undefined;
+      if (dbPool) {
+        try {
+          const result = await dbPool.query(
+            `INSERT INTO conversations
+               (id, channel, status, unread_count, updated_at)
+             VALUES ($1, 'whatsapp', 'open', 1, NOW())
+             ON CONFLICT (id) DO UPDATE
+             SET unread_count = conversations.unread_count + 1,
+                 status = CASE WHEN conversations.status = 'closed' THEN 'open' ELSE conversations.status END,
+                 updated_at = NOW()
+             RETURNING id, unread_count`,
+            [normalized.conversationId],
+          );
+          unreadCount = Number(result.rows[0]?.unread_count || 0);
+        } catch (error) {
+          logger.error({ err: error, conversationId: normalized.conversationId }, 'Failed to persist WhatsApp unread count');
+        }
+      } else {
+        logger.warn('DATABASE_URL is not configured; delivering WhatsApp message without unread persistence');
+      }
+
       emit(io, 'whatsapp:message', normalized);
+      if (unreadCount !== undefined) emitBadgeUpdate(io, normalized.conversationId, unreadCount);
     }
   });
 }

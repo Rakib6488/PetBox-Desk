@@ -12,12 +12,19 @@ function normalizePassword(host: string, value: string) {
 
 export const smtpConfig = () => {
   const host = process.env.SMTP_HOST || '';
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE
+    ? process.env.SMTP_SECURE === 'true'
+    : port === 465;
   return {
-  host,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: (process.env.SMTP_PORT || '587') === '465',
-  auth: { user: process.env.SMTP_USER || '', pass: normalizePassword(host, process.env.SMTP_PASS || '') },
-  from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+    host,
+    port,
+    secure,
+    auth: { user: process.env.SMTP_USER || '', pass: normalizePassword(host, process.env.SMTP_PASS || '') },
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
   };
 };
 

@@ -30,6 +30,7 @@ export const Header: React.FC = () => {
     customerEmails,
     landingLimit,
     landNextQueryFromQueue,
+    setChannelFilter,
     logout,
   } = useApp();
 
@@ -39,7 +40,15 @@ export const Header: React.FC = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const realMessageCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => {
-    const queued = waitingQueue.filter((item) => item.channelType === channel);
+    const queuedKeys = new Set<string>();
+    const queued = waitingQueue.filter((item) => {
+      if (item.channelType !== channel) return false;
+      const key = item.sourceEmailId
+        || (item.channelType === 'whatsapp' ? `${item.whatsappJid || item.email}:${item.createdAt}` : item.id);
+      if (queuedKeys.has(key)) return false;
+      queuedKeys.add(key);
+      return true;
+    });
     const unreadLanded = conversations
       .filter((conversation) => conversation.channelType === channel)
       .reduce((total, conversation) => total + Math.max(0, conversation.unreadCount || 0), 0);
@@ -52,6 +61,11 @@ export const Header: React.FC = () => {
     ]);
     const unreadMailbox = customerEmails.filter((email) => !email.isRead && !trackedEmailIds.has(email.id)).length;
     return queued.length + unreadLanded + unreadMailbox;
+  };
+
+  const openChannel = (channel: 'facebook' | 'email' | 'whatsapp') => {
+    navigateTo('/agent/inbox');
+    setChannelFilter(channel);
   };
 
   // Timer for status duration
@@ -101,7 +115,8 @@ export const Header: React.FC = () => {
           <button
             onClick={() => setWaitingQueueOpen(!waitingQueueOpen)}
             className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-emerald-500/80 bg-emerald-50/40 text-emerald-700 hover:bg-emerald-50 text-xs font-semibold transition-all shadow-2xs cursor-pointer ${currentUser.role === 'admin' ? 'hidden' : ''}`}
-            title={`Live Chat real messages (${realMessageCount('live_chat')})`}
+            title={`Unread Live Chat messages (${realMessageCount('live_chat')})`}
+            aria-label={`Unread Live Chat messages: ${realMessageCount('live_chat')}`}
           >
             <MessageSquare className="w-3.5 h-3.5 text-emerald-600 fill-emerald-100" />
             <span className="text-xs font-bold text-emerald-800">{realMessageCount('live_chat')}</span>
@@ -190,7 +205,9 @@ export const Header: React.FC = () => {
           {/* Pill 2: [💬 0] in light border */}
           <button
             className={`flex items-center gap-1 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 text-xs font-semibold transition-all shadow-2xs ${currentUser.role === 'admin' ? 'hidden' : ''}`}
-            title={`Facebook real messages (${realMessageCount('facebook')})`}
+            onClick={() => openChannel('facebook')}
+            title={`Unread Facebook messages (${realMessageCount('facebook')})`}
+            aria-label={`Unread Facebook messages: ${realMessageCount('facebook')}`}
           >
             <Facebook className="w-3.5 h-3.5 text-[#1877F2]" />
             <span className="text-xs font-semibold text-slate-700">{realMessageCount('facebook')}</span>
@@ -199,14 +216,18 @@ export const Header: React.FC = () => {
           {/* Pill 3: customer support email mailbox */}
           <button
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer relative"
-            title={`Email real messages (${realMessageCount('email')})`}
+            onClick={() => openChannel('email')}
+            title={`Unread email messages (${realMessageCount('email')})`}
+            aria-label={`Unread email messages: ${realMessageCount('email')}`}
           >
             <Mail className="w-3.5 h-3.5 text-slate-500" />
             <span className="text-xs font-semibold text-slate-700">{realMessageCount('email')}</span>
           </button>
           <button
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer"
-            title={`WhatsApp real messages (${realMessageCount('whatsapp')})`}
+            onClick={() => openChannel('whatsapp')}
+            title={`Unread WhatsApp messages (${realMessageCount('whatsapp')})`}
+            aria-label={`Unread WhatsApp messages: ${realMessageCount('whatsapp')}`}
           >
             <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
             <span className="text-xs font-semibold text-slate-700">{realMessageCount('whatsapp')}</span>

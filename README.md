@@ -37,6 +37,8 @@ The main protected endpoints are `/api/auth/*`, `/api/state`, `/api/conversation
 
 For Render, set `DATABASE_URL`, `SESSION_SECRET`, and `CLIENT_ORIGIN` in the service Environment Variables. The health-check path for the integrated service is `/api/health`; Render supplies the listening `PORT` automatically. `APP_URL` is also accepted as an additional Socket.IO origin.
 
+SMTP uses port 587 with STARTTLS by default (`SMTP_SECURE=false`), or port 465 with implicit TLS (`SMTP_SECURE=true`). Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` in Render. Gmail requires an App Password rather than a normal account password. SMTP connections use bounded timeouts and retry transient network/server failures once; no application-level outbound SMTP blocklist is configured.
+
 The integrated root server is protected by the normal session cookie. The standalone WhatsApp server is intended only for trusted internal callers and requires `WHATSAPP_API_KEY`; do not expose it directly to browsers or the public internet.
 
 On production startup, optional `ADMIN_*`, `SUPERVISOR_*`, `AGENT_*`, and `BI_*` environment variables automatically create or update the four workspace users. Keep the passwords in Render Environment Variables only; do not commit `.env`.

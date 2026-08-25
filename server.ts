@@ -8,7 +8,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { HOST, PORT } from './src/server/config';
 import { checkDatabaseConnection, dbPool } from './src/server/db';
-import { coreRouter } from './src/server/routes/core';
+import { createCoreRouter } from './src/server/routes/core';
 import { emailRouter } from './src/server/routes/email';
 import { createChannelsRouter } from './src/server/routes/channels';
 import { requireAuth, requireSameOrigin, verifySessionToken } from './src/server/auth';
@@ -85,7 +85,7 @@ app.get('/api/health', async (_req, res) => {
   res.json({ status: 'ok', database: database.connected ? 'connected' : 'not_configured', hasGeminiKey: Boolean(process.env.GEMINI_API_KEY) });
 });
 
-app.use('/api', coreRouter);
+app.use('/api', createCoreRouter(io));
 app.use('/api/email', emailRouter);
 app.use('/api/channels', createChannelsRouter(io));
 // The standalone WhatsApp package has its own Express type tree; runtime uses

@@ -23,7 +23,8 @@ import { authApi } from '../features/auth/authApi';
 import { inboxApi } from '../features/inbox/inboxApi';
 import { emailApi } from '../features/email/emailApi';
 import { channelApi } from '../features/channels/channelApi';
-import { whatsappApi, type WhatsAppIncomingMessage } from '../features/whatsapp/whatsappApi';
+import { whatsappApi, normalizeWhatsAppPhone, type WhatsAppIncomingMessage } from '../features/whatsapp/whatsappApi';
+import type { Socket } from 'socket.io-client';
 
 export type ActiveNavTab =
   | 'inbox'
@@ -80,6 +81,7 @@ interface AppContextType {
   currentUser: User;
   setCurrentUser: (user: User) => void;
   isLoggedIn: boolean;
+  whatsappSocket: Socket | null;
   login: (user: User) => void;
   logout: () => void;
   updateUserStatus: (status: AgentStatus) => void;
@@ -227,6 +229,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [currentRoute, setCurrentRoute] = useState<AppRoute>('/agent/inbox');
   const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>('overview');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [whatsappSocket, setWhatsappSocket] = useState<Socket | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveNavTab>('inbox');
   const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all'>('all');
@@ -240,6 +243,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const skipNextWorkspaceSaveRef = React.useRef(false);
   const workspaceVersionRef = React.useRef(0);
   const authCheckActiveRef = React.useRef(true);
+  const conversationsRef = React.useRef(conversations);
+  const messagesRef = React.useRef(messages);
+  const waitingQueueRef = React.useRef(waitingQueue);
+  const customerEmailsRef = React.useRef(customerEmails);
+  const processedWhatsAppIdsRef = React.useRef(new Set<string>());
+  const processedEmailIdsRef = React.useRef(new Set<string>());
+  const activeDeliveryKeysRef = React.useRef(new Set<string>());
+  const emailSyncInFlightRef = React.useRef(false);
+  const inboxSocketRef = React.useRef<Socket | null>(null);
+  const whatsappSocketRef = React.useRef<Socket | null>(null);
+  const socketDisconnectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  conversationsRef.current = conversations;
+  messagesRef.current = messages;
+  waitingQueueRef.current = waitingQueue;
+  customerEmailsRef.current = customerEmails;
+
+  const markConversationRead = (conversationId: string) => {
+    setConversations((previous) => previous.map((conversation) =>
+      conversation.id === conversationId
+        ? { ...conversation, unreadCount: 0 }
+        : conversation
+    ));
+    void inboxApi.markConversationRead(conversationId).catch((error) => {
+      console.error('Failed to persist conversation read state:', error);
+    });
+  };
+
+  const selectConversation = (conversationId: string | null) => {
+    setSelectedConversationId(conversationId);
+    if (!conversationId) return;
+    const conversation = conversationsRef.current.find((item) => item.id === conversationId);
+    if (conversation?.channelType === 'facebook' || conversation?.channelType === 'whatsapp') {
+      markConversationRead(conversationId);
+    } else {
+      setConversations((previous) => previous.map((item) =>
+        item.id === conversationId ? { ...item, unreadCount: 0 } : item
+      ));
+    }
+  };
   const setLandingLimit = (limit: number) => {
     if (!Number.isFinite(limit)) return;
     setLandingLimitState(Math.max(1, Math.min(20, Math.round(limit))));
@@ -248,6 +290,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Helper to land a query into the active inbox
   const landQueryItem = (item: WaitingQuery): Conversation => {
+    const existingConversation = item.sourceEmailId
+      ? conversationsRef.current.find((conversation) => conversation.sourceEmailId === item.sourceEmailId)
+      : undefined;
+    if (existingConversation) return existingConversation;
+
     const landedAt = new Date();
     const landedAtIso = landedAt.toISOString();
     const contactId = `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -321,7 +368,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const queueIncomingQuery = (item: WaitingQuery) => {
-    setWaitingQueue((previous) => previous.some((query) => query.id === item.id) ? previous : [...previous, item]);
+    setWaitingQueue((previous) => {
+      const duplicate = previous.some((query) => query.id === item.id
+        || (item.sourceEmailId && query.sourceEmailId === item.sourceEmailId)
+        || (item.channelType === 'whatsapp' && query.whatsappJid === item.whatsappJid && query.createdAt === item.createdAt));
+      return duplicate ? previous : [...previous, item];
+    });
     addAuditLog('QUERY_ADDED_TO_WAITING_QUEUE', 'WaitingQuery', item.id, `${item.channelType} query queued for an available agent`);
   };
 
@@ -507,7 +559,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (Array.isArray(data.conversations)) {
             const allMessages = Array.isArray(data.messages) ? data.messages as Message[] : [];
             const recentMessages = allMessages.filter((message) => isRecent(message.createdAt));
+            const seenEmailConversationSources = new Set<string>();
             const cleanConversations = data.conversations.filter((conversation: Conversation) => {
+              if (conversation.channelType === 'email' && conversation.sourceEmailId) {
+                if (seenEmailConversationSources.has(conversation.sourceEmailId)) return false;
+                seenEmailConversationSources.add(conversation.sourceEmailId);
+              }
               const customerMessages = allMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
               const latestCustomerAt = customerMessages.map((message) => message.createdAt).sort().at(-1) || conversation.lastMessageAt;
               const isOldPromotionalEmail = conversation.channelType === 'email'
@@ -532,12 +589,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (Array.isArray(data.slaRules)) setSlaRules(data.slaRules);
           if (Array.isArray(data.auditLogs)) setAuditLogs(data.auditLogs);
           if (Array.isArray(data.waitingQueue)) {
-            setWaitingQueue(data.waitingQueue.filter((item: WaitingQuery) => (
+            const seenWaitingItems = new Set<string>();
+            setWaitingQueue(data.waitingQueue.filter((item: WaitingQuery) => {
+              const dedupeKey = item.sourceEmailId
+                || (item.channelType === 'whatsapp' ? `${item.whatsappJid || item.email}:${item.createdAt}` : item.id);
+              if (seenWaitingItems.has(dedupeKey)) return false;
+              seenWaitingItems.add(dedupeKey);
+              return (
               isRecent(item.createdAt)
               && !(item.channelType === 'email' && isPromotionalMessage(`${item.subject || ''} ${item.message || ''}`, item.email || item.name))
-            )).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
+              );
+            }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
           }
-          if (Array.isArray(data.customerEmails)) setCustomerEmails(data.customerEmails.filter((email: CustomerEmail) => isRecent(email.receivedAt) && !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail)));
+          if (Array.isArray(data.customerEmails)) {
+            const seenEmailIds = new Set<string>();
+            setCustomerEmails(data.customerEmails.filter((email: CustomerEmail) => {
+              if (seenEmailIds.has(email.id)) return false;
+              seenEmailIds.add(email.id);
+              return isRecent(email.receivedAt) && !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail);
+            }));
+          }
           if (data.emailSettings && typeof data.emailSettings === 'object') setEmailSettings((prev) => ({ ...prev, ...data.emailSettings }));
           if (typeof data.landingLimit === 'number') setLandingLimit(data.landingLimit);
         }
@@ -658,6 +729,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const activeConversation = selectedConversation;
     const isExternalChannel = activeConversation?.channelType === 'email' || activeConversation?.channelType === 'facebook' || activeConversation?.channelType === 'whatsapp';
+    const deliveryKey = isExternalChannel ? `${activeConversation?.channelType}:${selectedConversationId}:${messageType}:${content}` : '';
+    if (deliveryKey && activeDeliveryKeysRef.current.has(deliveryKey)) return;
+    if (deliveryKey) activeDeliveryKeysRef.current.add(deliveryKey);
+    const finishDelivery = () => { if (deliveryKey) activeDeliveryKeysRef.current.delete(deliveryKey); };
     const withDeliveryTimeout = <T,>(promise: Promise<T>, timeoutMs = 12000) => Promise.race([
       promise,
       new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Delivery timed out. Please retry.')), timeoutMs)),
@@ -688,7 +763,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       void withDeliveryTimeout(channelApi.sendFacebookMessage({ recipientId: activeConversation.contact.facebookPsid, text: content }))
         .then(() => persistMessage())
         .then(() => { updateDeliveryStatus('sent'); addAuditLog('FACEBOOK_MESSAGE_SENT', 'Conversation', selectedConversationId, `Facebook message accepted for ${activeConversation.contact.name}`); })
-        .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('FACEBOOK_MESSAGE_FAILED', 'Conversation', selectedConversationId, `Facebook message failed: ${error?.message || 'Facebook delivery failed'}`); });
+        .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('FACEBOOK_MESSAGE_FAILED', 'Conversation', selectedConversationId, `Facebook message failed: ${error?.message || 'Facebook delivery failed'}`); })
+        .finally(finishDelivery);
     }
     if (activeConversation?.channelType === 'email' && activeConversation.contact.email && emailSettings.allowReplies && emailSettings.enabled) {
       void withDeliveryTimeout(emailApi.send({
@@ -697,7 +773,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: content,
         inReplyTo: activeConversation.emailMessageId,
         references: [activeConversation.emailReferences, activeConversation.emailMessageId].filter(Boolean).join(' '),
-      })).then(() => persistMessage()).then(() => {
+      }), 30000).then(() => persistMessage()).then(() => {
         updateDeliveryStatus('sent');
         if (activeConversation.sourceEmailId) {
           setCustomerEmails((prev) => prev.map((email) => email.id === activeConversation.sourceEmailId ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name } : email));
@@ -707,7 +783,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updateDeliveryStatus('failed', error?.message || 'SMTP delivery failed.');
         console.error('Failed to send email reply via SMTP', error);
         addAuditLog('EMAIL_REPLY_FAILED', 'Conversation', selectedConversationId, `Email reply failed for ${activeConversation.contact.email}: ${error?.message || 'SMTP request failed'}`);
-      });
+      }).finally(finishDelivery);
     } else if (activeConversation?.channelType === 'email') {
       const deliveryError = !activeConversation.contact.email
         ? 'Customer email address is missing.'
@@ -716,9 +792,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : 'Email replies are disabled in Admin Portal settings.';
       updateDeliveryStatus('failed', deliveryError);
       addAuditLog('EMAIL_REPLY_BLOCKED', 'Conversation', selectedConversationId, 'Email reply blocked by Admin email operations settings or missing customer email address.');
+      finishDelivery();
     } else if (activeConversation?.channelType === 'facebook') {
       updateDeliveryStatus('failed');
       addAuditLog('FACEBOOK_MESSAGE_BLOCKED', 'Conversation', selectedConversationId, 'Facebook reply blocked because the customer PSID is missing.');
+      finishDelivery();
     } else if (activeConversation?.channelType === 'whatsapp' && activeConversation.contact.whatsappJid) {
       const voiceAttachment = messageType === 'audio' ? attachments?.find((attachment) => typeof attachment?.url === 'string' && attachment.url.startsWith('data:audio/')) : undefined;
       const delivery = voiceAttachment?.url
@@ -727,10 +805,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       void withDeliveryTimeout(delivery)
         .then(() => persistMessage())
         .then(() => { updateDeliveryStatus('sent'); addAuditLog('WHATSAPP_MESSAGE_SENT', 'Conversation', selectedConversationId, `WhatsApp message accepted for ${activeConversation.contact.name}`); })
-        .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('WHATSAPP_MESSAGE_FAILED', 'Conversation', selectedConversationId, `WhatsApp message failed: ${error?.message || 'WhatsApp delivery failed'}`); });
+        .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('WHATSAPP_MESSAGE_FAILED', 'Conversation', selectedConversationId, `WhatsApp message failed: ${error?.message || 'WhatsApp delivery failed'}`); })
+        .finally(finishDelivery);
     } else if (activeConversation?.channelType === 'whatsapp') {
       updateDeliveryStatus('failed');
       addAuditLog('WHATSAPP_MESSAGE_BLOCKED', 'Conversation', selectedConversationId, 'WhatsApp reply blocked because the customer JID is missing.');
+      finishDelivery();
     }
 
     // Update conversation metadata
@@ -1273,7 +1353,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       senderType: 'contact',
       senderId: newContact.id,
       senderName: newContact.name,
-      content: `Subject: ${email.subject}\n\n${email.body}`,
+      content: email.preview || email.body || email.subject,
       messageType: 'text',
       createdAt: email.receivedAt,
       isRead: true,
@@ -1312,7 +1392,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         && receivedAt >= recentCutoff
         && !isPromotionalMessage(`${email.subject} ${email.preview} ${email.body}`, email.fromEmail);
     });
-    const uniqueNewEmails = realEmails.filter((email) => !customerEmails.some((existing) => existing.id === email.id));
+    const existingEmailIds = new Set(customerEmailsRef.current.map((email) => email.id));
+    const uniqueNewEmails = realEmails.filter((email) => !existingEmailIds.has(email.id) && !processedEmailIdsRef.current.has(email.id));
+    uniqueNewEmails.forEach((email) => processedEmailIdsRef.current.add(email.id));
     setCustomerEmails((prev) => {
       const existingIds = new Set(prev.map((e) => e.id));
       const existingSubjects = new Set(prev.map((e) => `${e.fromEmail}_${e.subject}_${e.receivedAt}`));
@@ -1324,8 +1406,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
     if (uniqueNewEmails.length && emailSettings.enabled) {
       const known = new Set([
-        ...waitingQueue.map((item) => item.sourceEmailId),
-        ...conversations.map((conversation) => conversation.sourceEmailId),
+        ...waitingQueueRef.current.map((item) => item.sourceEmailId),
+        ...conversationsRef.current.map((conversation) => conversation.sourceEmailId),
       ].filter(Boolean));
       const seenIncoming = new Set<string>();
       const incoming = uniqueNewEmails
@@ -1339,7 +1421,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           name: email.fromName || email.fromEmail || 'Email Customer',
           avatar: email.avatar || '',
           email: email.fromEmail,
-          message: email.body || email.preview || email.subject,
+          // Keep the same customer-facing preview shown in the email header
+          // as the first conversation message.
+          message: email.preview || email.body || email.subject,
           channelType: 'email',
           pageName: 'Email Support',
           createdAt: email.receivedAt,
@@ -1350,7 +1434,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           references: email.references,
         }));
 
-      let activeOpenCount = conversations.filter(
+      let activeOpenCount = conversationsRef.current.filter(
         (conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id
       ).length;
       const queuedEmails: WaitingQuery[] = [];
@@ -1365,7 +1449,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
 
       if (queuedEmails.length) {
-        setWaitingQueue((prev) => [...prev, ...queuedEmails]);
+        setWaitingQueue((prev) => {
+          const existingIds = new Set(prev.map((item) => item.id));
+          const existingEmailIds = new Set(prev.map((item) => item.sourceEmailId).filter(Boolean));
+          const uniqueQueued = queuedEmails.filter((item) => !existingIds.has(item.id) && !existingEmailIds.has(item.sourceEmailId));
+          return uniqueQueued.length ? [...prev, ...uniqueQueued] : prev;
+        });
       }
     }
     addAuditLog('SYNC_IMAP_EMAILS', 'CustomerEmail', 'imap_sync', `Synced emails from live IMAP server`);
@@ -1379,6 +1468,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!isLoggedIn || !emailSettings.enabled || !emailSettings.autoSync) return;
 
     const syncMailbox = () => {
+      if (emailSyncInFlightRef.current) return;
+      emailSyncInFlightRef.current = true;
       void emailApi.fetch(25)
         .then((data) => {
           if (data && data.success && Array.isArray(data.emails) && data.emails.length > 0) {
@@ -1387,23 +1478,54 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         })
         .catch((err) => {
           console.log('Background IMAP sync failed:', err.message);
-        });
+        })
+        .finally(() => { emailSyncInFlightRef.current = false; });
     };
     syncMailbox();
     const timer = setInterval(syncMailbox, 60_000);
     return () => clearInterval(timer);
-  }, [isLoggedIn, emailSettings.enabled, emailSettings.autoSync]);
+  }, [isLoggedIn, emailSettings.enabled, emailSettings.autoSync, emailSettings.autoLand, isAgentPaused, landingLimit, currentUser.id]);
+
+  // Keep one socket per logged-in session. Listener effects below may be
+  // re-bound as UI state changes, but they must not tear down these sockets.
+  useEffect(() => {
+    if (socketDisconnectTimerRef.current) {
+      clearTimeout(socketDisconnectTimerRef.current);
+      socketDisconnectTimerRef.current = null;
+    }
+    if (!isLoggedIn) return;
+
+    if (!inboxSocketRef.current) inboxSocketRef.current = channelApi.socket();
+    if (!whatsappSocketRef.current) {
+      whatsappSocketRef.current = whatsappApi.socket();
+      setWhatsappSocket(whatsappSocketRef.current);
+    }
+
+    return () => {
+      // A short grace period prevents React StrictMode's development
+      // mount/cleanup/remount cycle from closing a socket that is still needed.
+      socketDisconnectTimerRef.current = setTimeout(() => {
+        inboxSocketRef.current?.disconnect();
+        whatsappSocketRef.current?.disconnect();
+        inboxSocketRef.current = null;
+        whatsappSocketRef.current = null;
+        setWhatsappSocket(null);
+        socketDisconnectTimerRef.current = null;
+      }, 250);
+    };
+  }, [isLoggedIn, currentUser.id]);
 
   // Receive real Facebook webhook messages through the authenticated inbox socket.
   useEffect(() => {
     if (!isLoggedIn) return;
-    const socket = channelApi.socket();
-    const handleFacebookMessage = (incoming: { eventId?: string; senderId: string; senderName: string; content: string; timestamp: number; pageId?: string }) => {
+    const socket = inboxSocketRef.current;
+    if (!socket) return;
+    const handleFacebookMessage = (incoming: { conversationId?: string; eventId?: string; senderId: string; senderName: string; content: string; timestamp: number; pageId?: string }) => {
       if (isPromotionalMessage(incoming.content, incoming.senderName)) return;
-      if (incoming.eventId && messages.some((message) => message.id === incoming.eventId)) return;
+      if (incoming.eventId && messagesRef.current.some((message) => message.id === incoming.eventId)) return;
       const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
-      const existingConversation = conversations.find((conversation) => conversation.channelType === 'facebook' && conversation.contact.facebookPsid === incoming.senderId);
-      const activeOpenCount = conversations.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
+      const existingConversation = conversationsRef.current.find((conversation) => conversation.channelType === 'facebook' && conversation.contact.facebookPsid === incoming.senderId);
+      const activeOpenCount = conversationsRef.current.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
       if (!existingConversation && activeOpenCount >= landingLimit) {
         queueIncomingQuery({
           id: incoming.eventId || `fb_queue_${incoming.senderId}_${incoming.timestamp}`,
@@ -1428,9 +1550,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (existing) {
           conversationId = existing.id;
           nextMessage = { id: incoming.eventId || `fb_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: existing.contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: selectedConversationId === conversationId };
-          return previous.map((conversation) => conversation.id === conversationId ? { ...conversation, lastMessageAt: createdAt, lastMessageText: incoming.content, unreadCount: selectedConversationId === conversationId ? 0 : conversation.unreadCount + 1, status: conversation.status === 'closed' ? 'open' : conversation.status, summary: createConversationSummary(conversation, messages.filter((message) => message.conversationId === conversationId && message.senderType === 'contact'), nextMessage || undefined) } : conversation);
+          return previous.map((conversation) => conversation.id === conversationId ? { ...conversation, lastMessageAt: createdAt, lastMessageText: incoming.content, unreadCount: selectedConversationId === conversationId ? 0 : conversation.unreadCount + 1, status: conversation.status === 'closed' ? 'open' : conversation.status, summary: createConversationSummary(conversation, messagesRef.current.filter((message) => message.conversationId === conversationId && message.senderType === 'contact'), nextMessage || undefined) } : conversation);
         }
-        conversationId = `fb_conv_${Date.now()}`;
+        conversationId = incoming.conversationId || `fb_conv_${Date.now()}`;
         const contactId = `fb_contact_${incoming.senderId}`;
         const newConversation: Conversation = { id: conversationId, convUid: `FB-${Date.now()}`, pageId: incoming.pageId || 'facebook', pageName: pages.find((page) => page.channelType === 'facebook')?.name || 'Facebook Support', channelType: 'facebook', contactId, contact: { id: contactId, name: incoming.senderName || 'Facebook Customer', facebookPsid: incoming.senderId, email: '', avatar: '', createdAt }, assignedAgentId: currentUser.id, assignedAgent: currentUser, status: 'open', sentiment: 'neutral', tags: tags.length ? [tags[0]] : [], lastMessageAt: createdAt, lastMessageText: incoming.content, unreadCount: 1, createdAt, priority: 'medium' };
         nextMessage = { id: incoming.eventId || `fb_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: false };
@@ -1442,22 +1564,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       playSoundChime();
     };
     socket.on('facebook:message', handleFacebookMessage);
+    const handleBadgeUpdate = (update: { channel: string; conversationId: string; unreadCount: number }) => {
+      if (update.channel !== 'facebook') return;
+      setConversations((previous) => previous.map((conversation) =>
+        conversation.id === update.conversationId
+          ? { ...conversation, unreadCount: update.unreadCount }
+          : conversation
+      ));
+    };
+    socket.on('badge:update', handleBadgeUpdate);
     void channelApi.fetchFacebookEvents().then((response) => response.events.forEach(handleFacebookMessage)).catch(() => undefined);
-    return () => { socket.off('facebook:message', handleFacebookMessage); socket.disconnect(); };
+    return () => {
+      socket.off('facebook:message', handleFacebookMessage);
+      socket.off('badge:update', handleBadgeUpdate);
+    };
   }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, pages, tags, landingLimit]);
 
   // Receive real WhatsApp text messages without replacing the active selection.
   useEffect(() => {
     if (!isLoggedIn) return;
-    const socket = whatsappApi.socket();
+    const socket = whatsappSocketRef.current;
+    if (!socket) return;
     const handleWhatsAppMessage = (incoming: WhatsAppIncomingMessage) => {
       if (isPromotionalMessage(incoming.content, incoming.senderName)) return;
       const createdAt = new Date(incoming.timestamp || Date.now()).toISOString();
-      const existingConversation = conversations.find((conversation) => conversation.channelType === 'whatsapp' && conversation.contact.whatsappJid === incoming.senderId);
-      const activeOpenCount = conversations.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
+      const inboundId = incoming.messageId || `wa_${incoming.senderId}_${incoming.timestamp}_${incoming.content}`;
+      const normalizedPhone = normalizeWhatsAppPhone(incoming.senderId);
+      const stableConversationId = incoming.conversationId || `conv_wa_${normalizedPhone}`;
+      if (processedWhatsAppIdsRef.current.has(inboundId) || messagesRef.current.some((message) => message.id === `wa_msg_${inboundId}`)) return;
+      processedWhatsAppIdsRef.current.add(inboundId);
+      const existingConversation = conversationsRef.current.find((conversation) => conversation.channelType === 'whatsapp' && conversation.id === stableConversationId);
+      const existingContactConversation = conversationsRef.current.find((conversation) => conversation.channelType === 'whatsapp' && normalizeWhatsAppPhone(conversation.contact.whatsappJid || conversation.contact.phone || '') === normalizedPhone);
+      const activeOpenCount = conversationsRef.current.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
       if (!existingConversation && activeOpenCount >= landingLimit) {
         queueIncomingQuery({
-          id: `wa_queue_${incoming.senderId}_${incoming.timestamp}`,
+          id: `wa_queue_${inboundId}`,
           name: incoming.senderName || 'WhatsApp Customer',
           avatar: '',
           email: `${incoming.senderId}@whatsapp.local`,
@@ -1477,11 +1618,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let nextMessage: Message | null = null;
 
       setConversations((previous) => {
-        const existing = previous.find((conversation) => conversation.channelType === 'whatsapp' && conversation.contact.whatsappJid === incoming.senderId);
+        const existing = previous.find((conversation) => conversation.channelType === 'whatsapp' && conversation.id === stableConversationId);
         if (existing) {
           conversationId = existing.id;
           nextMessage = {
-            id: `wa_msg_${Date.now()}`,
+            id: `wa_msg_${inboundId}`,
             conversationId,
             senderType: 'contact',
             senderId: existing.contactId,
@@ -1497,11 +1638,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             lastMessageText: incoming.content,
             unreadCount: selectedConversationId === conversationId ? 0 : conversation.unreadCount + 1,
             status: conversation.status === 'closed' ? 'open' : conversation.status,
+            summary: createConversationSummary(conversation, messagesRef.current.filter((message) => message.conversationId === conversationId && message.senderType === 'contact'), nextMessage || undefined),
           } : conversation);
         }
 
-        conversationId = `wa_conv_${Date.now()}`;
-        const contactId = `wa_contact_${incoming.senderId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        // Legacy wa_conv_${Date.now()} conversations remain untouched. New
+        // inbound messages use conv_wa_${phone}; contact identity is reused
+        // by normalized phone so CRM notes/tags/history stay connected.
+        conversationId = stableConversationId;
+        const reusedContact = existingContactConversation?.contact;
+        const contactId = existingContactConversation?.contactId || `wa_contact_${normalizedPhone}`;
         const newConversation: Conversation = {
           id: conversationId,
           convUid: `WA-${Date.now()}`,
@@ -1509,7 +1655,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           pageName: pages.find((page) => page.channelType === 'whatsapp')?.name || 'WhatsApp Support',
           channelType: 'whatsapp',
           contactId,
-          contact: { id: contactId, name: incoming.senderName, whatsappJid: incoming.senderId, phone: incoming.senderId.split('@')[0], avatar: '', createdAt },
+          contact: reusedContact
+            ? { ...reusedContact, whatsappJid: incoming.senderId, phone: normalizedPhone }
+            : { id: contactId, name: incoming.senderName, whatsappJid: incoming.senderId, phone: normalizedPhone, avatar: '', createdAt },
           assignedAgentId: currentUser.id,
           assignedAgent: currentUser,
           status: 'open',
@@ -1521,7 +1669,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           createdAt,
           priority: 'medium',
         };
-        nextMessage = { id: `wa_msg_${Date.now()}`, conversationId, senderType: 'contact', senderId: contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: false };
+        nextMessage = { id: `wa_msg_${inboundId}`, conversationId, senderType: 'contact', senderId: contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: false };
         newConversation.summary = createConversationSummary(newConversation, [nextMessage]);
         return [newConversation, ...previous];
       });
@@ -1532,7 +1680,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     socket.on('whatsapp:message', handleWhatsAppMessage);
-    return () => { socket.off('whatsapp:message', handleWhatsAppMessage); socket.disconnect(); };
+    const handleBadgeUpdate = (update: { channel: string; conversationId: string; unreadCount: number }) => {
+      if (update.channel !== 'whatsapp') return;
+      setConversations((previous) => previous.map((conversation) =>
+        conversation.id === update.conversationId ? { ...conversation, unreadCount: update.unreadCount } : conversation
+      ));
+    };
+    socket.on('badge:update', handleBadgeUpdate);
+    return () => {
+      socket.off('whatsapp:message', handleWhatsAppMessage);
+      socket.off('badge:update', handleBadgeUpdate);
+    };
   }, [isLoggedIn, selectedConversationId, currentUser.id, currentUser.name, currentUser.avatar, pages, tags, landingLimit]);
 
   return (
@@ -1541,6 +1699,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         currentUser,
         setCurrentUser,
         isLoggedIn,
+        whatsappSocket,
         login,
         logout,
         updateUserStatus,
@@ -1554,7 +1713,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setActiveTab,
         conversations,
         selectedConversationId,
-        setSelectedConversationId,
+        setSelectedConversationId: selectConversation,
         selectedConversation,
         messages,
         conversationMessages,

@@ -8,13 +8,36 @@ import { getGemini, imapConfig, smtpConfig } from '../config';
 export const emailRouter = Router();
 emailRouter.use(requireAuth);
 
+const SMTP_RETRY_DELAY_MS = 750;
+const SMTP_RETRYABLE_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ESOCKET', 'SMTP_ETIMEDOUT']);
+
+function smtpErrorDetails(error: any) {
+  return {
+    message: error?.message || 'Unknown SMTP error',
+    code: error?.code,
+    command: error?.command,
+    responseCode: error?.responseCode,
+    response: error?.response,
+  };
+}
+
+function isRetryableSmtpError(error: any) {
+  return SMTP_RETRYABLE_CODES.has(error?.code) || [421, 450, 451, 452].includes(error?.responseCode);
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 emailRouter.post('/test-connection', async (_req, res) => {
   const smtp = smtpConfig();
   const imap = imapConfig();
   const result = { smtp: { success: false, message: '' }, imap: { success: false, message: '' } };
   if (smtp.host && smtp.auth.user && smtp.auth.pass) {
-    try { await nodemailer.createTransport(smtp).verify(); result.smtp = { success: true, message: 'SMTP connection verified.' }; }
-    catch (error: any) { result.smtp.message = error?.message || 'SMTP connection failed.'; }
+    const transporter = nodemailer.createTransport({ ...smtp, tls: { minVersion: 'TLSv1.2' } });
+    try { await transporter.verify(); result.smtp = { success: true, message: 'SMTP connection verified.' }; }
+    catch (error: any) { console.error('SMTP connection test failed:', smtpErrorDetails(error)); result.smtp.message = error?.message || 'SMTP connection failed.'; }
+    finally { transporter.close(); }
   } else result.smtp.message = 'SMTP is not configured.';
   if (imap.host && imap.auth.user && imap.auth.pass) {
     const client = new ImapFlow(imap);
@@ -29,13 +52,13 @@ emailRouter.post('/send', async (req, res) => {
   if (!to || !subject || (!body && !html)) return res.status(400).json({ error: 'to, subject and body/html are required.' });
   const smtp = smtpConfig();
   if (!smtp.host || !smtp.auth.user || !smtp.auth.pass) return res.status(503).json({ error: 'SMTP is not configured.' });
+  const transporter = nodemailer.createTransport({
+    ...smtp,
+    // Gmail requires an App Password when 2-Step Verification is enabled; a normal account password will fail authentication.
+    tls: { minVersion: 'TLSv1.2' },
+  });
   try {
-    const transporter = nodemailer.createTransport({
-      ...smtp,
-      tls: { minVersion: 'TLSv1.2' },
-    });
-    await transporter.verify();
-    const info = await transporter.sendMail({
+    const message = {
       from: smtp.from,
       to,
       subject,
@@ -43,9 +66,27 @@ emailRouter.post('/send', async (req, res) => {
       html: html || undefined,
       inReplyTo,
       references,
-    });
-    res.json({ success: true, messageId: info.messageId, sentAt: new Date().toISOString() });
-  } catch (error: any) { res.status(500).json({ error: error?.message || 'Failed to send email.' }); }
+    };
+    let info;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await transporter.verify();
+        break;
+      } catch (error: any) {
+        console.error(`SMTP connection verification attempt ${attempt} failed:`, smtpErrorDetails(error));
+        if (attempt === 2 || !isRetryableSmtpError(error)) throw error;
+        await wait(SMTP_RETRY_DELAY_MS);
+      }
+    }
+    // Do not retry sendMail after an uncertain network failure: the provider
+    // may have accepted the message even when the response was lost.
+    info = await transporter.sendMail(message);
+    res.json({ success: true, messageId: info?.messageId, sentAt: new Date().toISOString() });
+  } catch (error: any) {
+    const details = smtpErrorDetails(error);
+    console.error('SMTP email delivery failed:', details);
+    res.status(502).json({ error: details.message, code: details.code, responseCode: details.responseCode });
+  } finally { transporter.close(); }
 });
 
 emailRouter.get('/fetch', async (req, res) => {
