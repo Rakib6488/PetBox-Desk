@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
 import { adminApi } from '../../features/admin/adminApi';
-import { channelApi } from '../../features/channels/channelApi';
 import { whatsappApi, type WhatsAppStatus } from '../../features/whatsapp/whatsappApi';
 import {
   Users,
@@ -71,7 +70,7 @@ export const AdminPortal: React.FC = () => {
   const managedUsers = users.filter((user) => user.role === 'agent' || user.role === 'supervisor');
   const getConversationCount = (userId: string) => conversations.filter((conversation) => conversation.assignedAgentId === userId).length;
   const openTickets = conversations.filter((conversation) => conversation.status === 'open').length;
-  const activeChannels = pages.filter((page) => page.status === 'active').length;
+  const activeChannels = pages.filter((page) => (page.channelType === 'email' || page.channelType === 'whatsapp') && page.status === 'active').length;
 
   // Agent modal state
   const [agentModalOpen, setAgentModalOpen] = useState(false);
@@ -178,32 +177,6 @@ export const AdminPortal: React.FC = () => {
     });
     setTagModalOpen(false);
     setTagName('');
-  };
-
-  const handleConnectFbPage = async () => {
-    setFacebookConnectError('');
-    try {
-      const { page } = await channelApi.fetchFacebookPage();
-      if (pages.some((item) => item.id === page.id)) {
-        setFacebookConnectError('This Facebook Page is already connected.');
-        return;
-      }
-    addPage({
-      id: page.id,
-      name: page.name,
-      channelType: 'facebook',
-      pageAccessToken: '',
-      webhookVerifyToken: '',
-      status: 'active',
-      autoReplyMessage: 'ধন্যবাদ, আমরা দ্রুতই আপনার সাথে যোগাযোগ করব।',
-      settings: {
-        themeColor: '#1877F2',
-      },
-    });
-    setFbConnectModalOpen(false);
-    } catch (error: any) {
-      setFacebookConnectError(error?.message || 'Unable to verify the Facebook Page.');
-    }
   };
 
   const embedScriptCode = `<script 
@@ -449,14 +422,14 @@ export const AdminPortal: React.FC = () => {
 
               <button
                 onClick={() => { setFacebookConnectError(''); setFbConnectModalOpen(true); }}
-                className="px-3 py-1.5 bg-[#1877F2] text-white rounded-lg text-xs font-semibold hover:bg-blue-700 flex items-center gap-1.5 shadow-xs"
+                className="hidden"
               >
                 <Plus className="w-3.5 h-3.5" /> Connect Facebook Page (OAuth)
               </button>
             </div>
 
             <div className="divide-y divide-slate-100">
-              {pages.map((p) => (
+              {pages.filter((p) => p.channelType === 'email' || p.channelType === 'whatsapp').map((p) => (
                 <div key={p.id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                   <div>
                     <div className="flex items-center gap-2">
@@ -506,7 +479,7 @@ export const AdminPortal: React.FC = () => {
           </div>
 
           {/* Live Chat Widget Customizer & Embed Code Generator */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
+          <div className="hidden bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
             <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-orange-500" /> Website Live Chat Widget Settings & Embed Code
             </h3>
@@ -1044,7 +1017,7 @@ export const AdminPortal: React.FC = () => {
                 Cancel
               </button>
               <button
-                onClick={handleConnectFbPage}
+                onClick={() => setFbConnectModalOpen(false)}
                 className="px-4 py-1.5 rounded-lg bg-[#1877F2] text-white text-xs font-semibold hover:bg-blue-700"
               >
                 Authenticate & Connect

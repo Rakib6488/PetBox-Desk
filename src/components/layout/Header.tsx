@@ -116,7 +116,7 @@ export const Header: React.FC = () => {
           {/* Pill 1: [💬 16] in green border & green icon (Customer Waiting Queue) */}
           <button
             onClick={() => setWaitingQueueOpen(!waitingQueueOpen)}
-            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-emerald-500/80 bg-emerald-50/40 text-emerald-700 hover:bg-emerald-50 text-xs font-semibold transition-all shadow-2xs cursor-pointer ${currentUser.role === 'admin' ? 'hidden' : ''}`}
+            className="hidden"
             title={`Unread Live Chat messages (${realMessageCount('live_chat')})`}
             aria-label={`Unread Live Chat messages: ${realMessageCount('live_chat')}`}
           >
@@ -206,7 +206,7 @@ export const Header: React.FC = () => {
 
           {/* Pill 2: [💬 0] in light border */}
           <button
-            className={`flex items-center gap-1 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 text-xs font-semibold transition-all shadow-2xs ${currentUser.role === 'admin' ? 'hidden' : ''}`}
+            className="hidden"
             onClick={() => openChannel('facebook')}
             title={`Unread Facebook messages (${realMessageCount('facebook')})`}
             aria-label={`Unread Facebook messages: ${realMessageCount('facebook')}`}

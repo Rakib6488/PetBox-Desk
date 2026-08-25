@@ -16,10 +16,8 @@ import {
   ChevronDown,
   X,
   Maximize2,
-  Facebook,
   Mail,
   MessageCircle,
-  ExternalLink,
 } from 'lucide-react';
 
 export const ChatWindow: React.FC = () => {
@@ -139,13 +137,9 @@ export const ChatWindow: React.FC = () => {
   };
 
   const emojis = ['👍', '🙏', '😊', '❤️', '✅', '⚠️', '🎉', '📌', '🤝', '🙌'];
-  const channelMeta = selectedConversation.channelType === 'email'
-    ? { label: 'Email', icon: <Mail className="w-3 h-3" />, color: 'bg-sky-600' }
-    : selectedConversation.channelType === 'whatsapp'
-      ? { label: 'WhatsApp', icon: <MessageCircle className="w-3 h-3" />, color: 'bg-emerald-600' }
-    : selectedConversation.channelType === 'live_chat'
-      ? { label: 'Live chat', icon: <img src="/petbox-live-chat-logo.svg" alt="Petbox Desk" className="h-3.5 w-3.5 object-contain" />, color: 'bg-[#0B3442]' }
-      : { label: 'Messenger', icon: <Facebook className="w-3 h-3" />, color: 'bg-[#1877F2]' };
+  const channelMeta = selectedConversation.channelType === 'whatsapp'
+    ? { label: 'WhatsApp', icon: <MessageCircle className="w-3 h-3" />, color: 'bg-emerald-600' }
+    : { label: 'Email', icon: <Mail className="w-3 h-3" />, color: 'bg-sky-600' };
 
   return (
     <div className="min-w-0 flex-1 flex flex-col bg-[#F8FAFC] h-full overflow-hidden select-none relative">
@@ -157,20 +151,9 @@ export const ChatWindow: React.FC = () => {
             {channelMeta.icon}
           </div>
           <span className="font-bold text-slate-800 text-xs tracking-tight">
-            {selectedConversation.channelType === 'live_chat' ? 'Petbox Desk' : selectedConversation.pageName || channelMeta.label}
+            {selectedConversation.pageName || channelMeta.label}
           </span>
           <span className="text-[10px] text-slate-400">{channelMeta.label}</span>
-          {selectedConversation.channelType === 'facebook' && (
-            <button
-              type="button"
-              onClick={() => window.open('https://business.facebook.com/latest/inbox/all', '_blank', 'noopener,noreferrer')}
-              className="ml-1 inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
-              title="Open Facebook Page Inbox"
-            >
-              <ExternalLink className="h-3 w-3" />
-              Open in Facebook
-            </button>
-          )}
         </div>
 
         {/* Right: Refresh icon in circle + "A" Agent Avatar in circle matching screenshot */}

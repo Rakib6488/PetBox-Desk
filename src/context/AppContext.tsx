@@ -586,6 +586,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const recentMessages = allMessages.filter((message) => isRecent(message.createdAt));
             const seenEmailConversationSources = new Set<string>();
             const cleanConversations = data.conversations.filter((conversation: Conversation) => {
+              // Petbox Desk currently exposes only Email and WhatsApp. Keep
+              // legacy channel rows in the database, but do not load them into
+              // the active workspace UI.
+              if (conversation.channelType !== 'email' && conversation.channelType !== 'whatsapp') return false;
               if (conversation.channelType === 'email' && conversation.sourceEmailId) {
                 if (seenEmailConversationSources.has(conversation.sourceEmailId)) return false;
                 seenEmailConversationSources.add(conversation.sourceEmailId);
@@ -621,7 +625,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               if (seenWaitingItems.has(dedupeKey)) return false;
               seenWaitingItems.add(dedupeKey);
               return (
-              isRecent(item.createdAt)
+              (item.channelType === 'email' || item.channelType === 'whatsapp')
+              && isRecent(item.createdAt)
               && !(item.channelType === 'email' && isPromotionalMessage(`${item.subject || ''} ${item.message || ''}`, item.email || item.name))
               );
             }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
@@ -787,13 +792,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!isExternalChannel) void persistMessage()
       .then(() => { if (!isExternalChannel) updateDeliveryStatus('sent'); })
       .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('MESSAGE_PERSISTENCE_FAILED', 'Conversation', selectedConversationId, error?.message || 'Unable to save message.'); });
-    if (activeConversation?.channelType === 'facebook' && activeConversation.contact.facebookPsid) {
-      void withDeliveryTimeout(channelApi.sendFacebookMessage({ recipientId: activeConversation.contact.facebookPsid, text: content }))
-        .then(() => persistMessage())
-        .then(() => { updateDeliveryStatus('sent'); addAuditLog('FACEBOOK_MESSAGE_SENT', 'Conversation', selectedConversationId, `Facebook message accepted for ${activeConversation.contact.name}`); })
-        .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('FACEBOOK_MESSAGE_FAILED', 'Conversation', selectedConversationId, `Facebook message failed: ${error?.message || 'Facebook delivery failed'}`); })
-        .finally(finishDelivery);
-    }
     if (activeConversation?.channelType === 'email' && activeConversation.contact.email && emailSettings.allowReplies && emailSettings.enabled) {
       void withDeliveryTimeout(emailApi.send({
         to: activeConversation.contact.email,
@@ -820,10 +818,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : 'Email replies are disabled in Admin Portal settings.';
       updateDeliveryStatus('failed', deliveryError);
       addAuditLog('EMAIL_REPLY_BLOCKED', 'Conversation', selectedConversationId, 'Email reply blocked by Admin email operations settings or missing customer email address.');
-      finishDelivery();
-    } else if (activeConversation?.channelType === 'facebook') {
-      updateDeliveryStatus('failed');
-      addAuditLog('FACEBOOK_MESSAGE_BLOCKED', 'Conversation', selectedConversationId, 'Facebook reply blocked because the customer PSID is missing.');
       finishDelivery();
     } else if (activeConversation?.channelType === 'whatsapp' && activeConversation.contact.whatsappJid) {
       const voiceAttachment = messageType === 'audio' ? attachments?.find((attachment) => typeof attachment?.url === 'string' && attachment.url.startsWith('data:audio/')) : undefined;
@@ -1595,7 +1589,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (conversationId) addAuditLog('FACEBOOK_MESSAGE_RECEIVED', 'Conversation', conversationId, `Received Facebook message from ${incoming.senderName}`);
       playSoundChime();
     };
-    socket.on('facebook:message', handleFacebookMessage);
+    // Facebook is not an active workspace channel; legacy rows remain stored
+    // for reporting, but no new Facebook messages are mounted in the UI.
     const handleBadgeUpdate = (update: { channel: string; conversationId: string; unreadCount: number }) => {
       if (!['facebook', 'whatsapp', 'email'].includes(update.channel)) return;
       setConversations((previous) => previous.map((conversation) =>
@@ -1605,7 +1600,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ));
     };
     socket.on('badge:update', handleBadgeUpdate);
-    void channelApi.fetchFacebookEvents().then((response) => response.events.forEach(handleFacebookMessage)).catch(() => undefined);
     return () => {
       socket.off('facebook:message', handleFacebookMessage);
       socket.off('badge:update', handleBadgeUpdate);

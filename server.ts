@@ -11,7 +11,6 @@ import { HOST, PORT } from './src/server/config';
 import { checkDatabaseConnection, dbPool } from './src/server/db';
 import { createCoreRouter } from './src/server/routes/core';
 import { createEmailRouter } from './src/server/routes/email';
-import { createChannelsRouter } from './src/server/routes/channels';
 import { requireAuth, requireSameOrigin, verifySessionToken } from './src/server/auth';
 import { Server as SocketIOServer } from 'socket.io';
 import { createWhatsAppRouter } from './server/src/whatsapp/routes';
@@ -92,7 +91,6 @@ app.get('/api/health', async (_req, res) => {
 
 app.use('/api', createCoreRouter(io));
 app.use('/api/email', createEmailRouter(io));
-app.use('/api/channels', createChannelsRouter(io));
 // The standalone WhatsApp package has its own Express type tree; runtime uses
 // the same Express instance, so narrow the cross-package router at this boundary.
 app.use('/api/whatsapp', requireAuth, createWhatsAppRouter(io) as any);
