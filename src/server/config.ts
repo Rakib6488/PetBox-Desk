@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import type { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
@@ -20,14 +22,32 @@ export const smtpConfig = () => {
     host,
     port,
     secure,
-    family: 4,
     auth: { user: process.env.SMTP_USER || '', pass: normalizePassword(host, process.env.SMTP_PASS || '') },
     from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
+    tls: undefined as { servername?: string; minVersion: 'TLSv1.2' } | undefined,
   };
 };
+
+export async function smtpTransportConfig() {
+  const config = smtpConfig();
+  if (!config.host || net.isIP(config.host)) return config;
+
+  const addresses = await dns.resolve4(config.host);
+  const ipv4Address = addresses[0];
+  if (!ipv4Address) throw new Error(`No IPv4 address found for SMTP host ${config.host}.`);
+
+  return {
+    ...config,
+    host: ipv4Address,
+    tls: {
+      servername: config.host,
+      minVersion: 'TLSv1.2' as const,
+    },
+  };
+}
 
 export const imapConfig = () => {
   const host = process.env.IMAP_HOST || '';

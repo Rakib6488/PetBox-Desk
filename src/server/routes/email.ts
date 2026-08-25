@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { requireAuth } from '../auth';
-import { getGemini, imapConfig, smtpConfig } from '../config';
+import { getGemini, imapConfig, smtpConfig, smtpTransportConfig } from '../config';
 import { dbPool } from '../db';
 import type { Server as SocketIOServer } from 'socket.io';
 
@@ -45,7 +45,8 @@ emailRouter.post('/test-connection', async (_req, res) => {
   const imap = imapConfig();
   const result = { smtp: { success: false, message: '' }, imap: { success: false, message: '' } };
   if (smtp.host && smtp.auth.user && smtp.auth.pass) {
-    const transporter = nodemailer.createTransport({ ...smtp, tls: { minVersion: 'TLSv1.2' } });
+    const transport = await smtpTransportConfig();
+    const transporter = nodemailer.createTransport({ ...transport, tls: { minVersion: 'TLSv1.2', ...(transport.tls || {}) } });
     try { await transporter.verify(); result.smtp = { success: true, message: 'SMTP connection verified.' }; }
     catch (error: any) { console.error('SMTP connection test failed:', smtpErrorDetails(error)); result.smtp.message = error?.message || 'SMTP connection failed.'; }
     finally { transporter.close(); }
@@ -63,10 +64,11 @@ emailRouter.post('/send', async (req, res) => {
   if (!to || !subject || (!body && !html)) return res.status(400).json({ error: 'to, subject and body/html are required.' });
   const smtp = smtpConfig();
   if (!smtp.host || !smtp.auth.user || !smtp.auth.pass) return res.status(503).json({ error: 'SMTP is not configured.' });
+  const transport = await smtpTransportConfig();
   const transporter = nodemailer.createTransport({
-    ...smtp,
+    ...transport,
     // Gmail requires an App Password when 2-Step Verification is enabled; a normal account password will fail authentication.
-    tls: { minVersion: 'TLSv1.2' },
+    tls: { minVersion: 'TLSv1.2', ...(transport.tls || {}) },
   });
   try {
     const message = {
