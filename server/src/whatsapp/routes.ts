@@ -12,6 +12,14 @@ import {
 export function createWhatsAppRouter(io: SocketIOServer) {
   const router = Router();
 
+  const requireSendRole = (req: any, res: any, next: any) => {
+    if (!['admin', 'supervisor', 'agent'].includes(res.locals.user?.role)) {
+      res.status(403).json({ ok: false, error: 'You do not have permission to send messages.' });
+      return;
+    }
+    next();
+  };
+
   router.use((req, res, next) => {
     if ((req.method === 'POST' && (req.path === '/connect' || req.path === '/disconnect')) && res.locals.user?.role !== 'admin') {
       res.status(403).json({ ok: false, error: 'Admin access required for WhatsApp connection management.' });
@@ -43,7 +51,7 @@ export function createWhatsAppRouter(io: SocketIOServer) {
     }
   });
 
-  router.post('/send', async (req, res) => {
+  router.post('/send', requireSendRole, async (req, res) => {
     const jid = typeof req.body?.jid === 'string' ? req.body.jid : '';
     const text = typeof req.body?.text === 'string' ? req.body.text : '';
     if (!jid.trim() || !text.trim()) {
@@ -59,7 +67,7 @@ export function createWhatsAppRouter(io: SocketIOServer) {
     }
   });
 
-  router.post('/send-voice', async (req, res) => {
+  router.post('/send-voice', requireSendRole, async (req, res) => {
     const jid = typeof req.body?.jid === 'string' ? req.body.jid : '';
     const audio = typeof req.body?.audio === 'string' ? req.body.audio : '';
     const mimetype = typeof req.body?.mimetype === 'string' ? req.body.mimetype : 'audio/webm';

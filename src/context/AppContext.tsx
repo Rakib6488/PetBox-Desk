@@ -391,6 +391,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       messageType: 'text',
       createdAt: new Date().toISOString(),
       isRead: false,
+      ...(item.relationalPersistenceStatus === 'workspace_only'
+        ? { metadata: { relationalPersistenceStatus: 'workspace_only' } }
+        : {}),
     };
 
     newConv.summary = createConversationSummary(newConv, [firstMsg]);
@@ -622,10 +625,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const recentMessages = allMessages.filter((message) => isRecent(message.createdAt));
             const seenEmailConversationSources = new Set<string>();
             const cleanConversations = data.conversations.filter((conversation: Conversation) => {
-              // Petbox Desk currently exposes only Email and WhatsApp. Keep
-              // legacy channel rows in the database, but do not load them into
-              // the active workspace UI.
-              if (conversation.channelType !== 'email' && conversation.channelType !== 'whatsapp') return false;
               if (conversation.channelType === 'email' && conversation.sourceEmailId) {
                 if (seenEmailConversationSources.has(conversation.sourceEmailId)) return false;
                 seenEmailConversationSources.add(conversation.sourceEmailId);
@@ -677,8 +676,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               if (seenWaitingItems.has(dedupeKey)) return false;
               seenWaitingItems.add(dedupeKey);
               return (
-              (item.channelType === 'email' || item.channelType === 'whatsapp')
-              && isRecent(item.createdAt)
+              isRecent(item.createdAt)
               && !(item.channelType === 'email' && isPromotionalMessage(`${item.subject || ''} ${item.message || ''}`, item.email || item.name))
               );
             }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
@@ -755,6 +753,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       .filter((m) => m.conversationId === selectedConversationId)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [messages, selectedConversationId]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !selectedConversationId) return;
+    if (selectedConversation?.channelType !== 'email' && selectedConversation?.channelType !== 'whatsapp') return;
+    let active = true;
+    void inboxApi.loadMessages(selectedConversationId)
+      .then((result) => {
+        if (!active || !Array.isArray(result?.messages)) return;
+        setMessages((previous) => {
+          const byId = new Map<string, Message>(previous.map((message) => [message.id, message]));
+          for (const message of result.messages) {
+            if (message?.id) byId.set(message.id, { ...message, attachments: message.attachments || undefined });
+          }
+          return [...byId.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+        });
+      })
+      .catch((error) => console.warn('Relational message hydration failed:', error?.message || error));
+    return () => { active = false; };
+  }, [isLoggedIn, selectedConversationId, selectedConversation?.channelType]);
 
   // Notification count
   const notificationCount = useMemo(() => {
@@ -1303,19 +1320,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAuditLog('SLA_RULE_UPDATE', 'SLARule', id, 'Updated SLA configuration');
   };
 
-  // TODO(live-chat): Keep timestamp-based IDs until public/widget/v1/widget.js
-  // becomes a real messaging client. It is currently only a visual shell with
-  // no visitor session ID or inbound message delivery path.
   // Helper to create a live chat conversation on the fly from visitor widget
   const createLiveChatVisitorConversation = (visitorName: string, initialMsg: string, email?: string): string => {
-    const contactId = `contact_visitor_${Date.now()}`;
-    const convId = `conv_livechat_${Date.now()}`;
-    const convUid = Math.random().toString(16).substring(2, 10) + Math.random().toString(16).substring(2, 10);
+    const visitorId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random()}`;
+    const contactId = `contact_visitor_${visitorId}`;
+    const convId = `conv_livechat_${visitorId}`;
+    const convUid = visitorId.replaceAll('-', '').slice(0, 16);
 
     const newContact: Contact = {
       id: contactId,
       name: visitorName || 'Live Chat Visitor',
-      email: email || `visitor_${Date.now().toString().slice(-4)}@customer.com`,
+      email: email || `visitor_${visitorId.slice(0, 8)}@customer.com`,
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       createdAt: new Date().toISOString(),
       customerTier: 'New',
@@ -1342,7 +1357,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     const firstMsg: Message = {
-      id: `msg_init_${Date.now()}`,
+      id: `msg_init_${visitorId}`,
       conversationId: convId,
       senderType: 'contact',
       senderId: newContact.id,
@@ -1498,6 +1513,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const existingEmailIds = new Set(customerEmailsRef.current.map((email) => email.id));
     const uniqueNewEmails = realEmails.filter((email) => !existingEmailIds.has(email.id) && !processedEmailIdsRef.current.has(email.id));
     uniqueNewEmails.forEach((email) => processedEmailIdsRef.current.add(email.id));
+    uniqueNewEmails
+      .filter((email) => email.relationalPersistenceStatus === 'workspace_only')
+      .forEach((email) => {
+        addAuditLog(
+          'RELATIONAL_PERSISTENCE_DRIFT',
+          'Conversation',
+          email.conversationId || stableEmailConversationId(email.fromEmail, email.id),
+          `Email ${email.id} is currently available only in workspace state.`,
+        );
+      });
     setCustomerEmails((prev) => {
       const existingIds = new Set(prev.map((e) => e.id));
       const existingSubjects = new Set(prev.map((e) => `${e.fromEmail}_${e.subject}_${e.receivedAt}`));
@@ -1536,6 +1561,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           messageId: email.messageId,
           references: email.references,
           conversationId: email.conversationId,
+          relationalPersistenceStatus: email.relationalPersistenceStatus,
         }));
 
       let activeOpenCount = conversationsRef.current.filter(
@@ -1581,7 +1607,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
         })
         .catch((err) => {
-          console.log('Background IMAP sync failed:', err.message);
+          console.error('Background IMAP sync failed:', err);
+          setWorkspaceNotice(`Email sync failed: ${err?.message || 'Unable to reach the mailbox.'}`);
+          window.setTimeout(() => setWorkspaceNotice(''), 5000);
         })
         .finally(() => { emailSyncInFlightRef.current = false; });
     };
@@ -1689,6 +1717,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             messageType: 'text',
             createdAt,
             isRead: selectedConversationId === conversationId,
+            ...(incoming.relationalPersistenceStatus === 'workspace_only'
+              ? { metadata: { relationalPersistenceStatus: 'workspace_only' } }
+              : {}),
           };
           return previous.map((conversation) => conversation.id === conversationId ? {
             ...conversation,
@@ -1727,12 +1758,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           createdAt,
           priority: 'medium',
         };
-        nextMessage = { id: `wa_msg_${inboundId}`, conversationId, senderType: 'contact', senderId: contactId, senderName: incoming.senderName, content: incoming.content, messageType: 'text', createdAt, isRead: false };
+        nextMessage = {
+          id: `wa_msg_${inboundId}`,
+          conversationId,
+          senderType: 'contact',
+          senderId: contactId,
+          senderName: incoming.senderName,
+          content: incoming.content,
+          messageType: 'text',
+          createdAt,
+          isRead: false,
+          ...(incoming.relationalPersistenceStatus === 'workspace_only'
+            ? { metadata: { relationalPersistenceStatus: 'workspace_only' } }
+            : {}),
+        };
         newConversation.summary = createConversationSummary(newConversation, [nextMessage]);
         return [newConversation, ...previous];
       });
 
       if (nextMessage) setMessages((previous) => [...previous, nextMessage as Message]);
+      if (incoming.relationalPersistenceStatus === 'workspace_only' && conversationId) {
+        addAuditLog(
+          'RELATIONAL_PERSISTENCE_DRIFT',
+          'Conversation',
+          conversationId,
+          `WhatsApp message ${inboundId} is currently available only in workspace state.`,
+        );
+      }
       if (conversationId) addAuditLog('WHATSAPP_MESSAGE_RECEIVED', 'Conversation', conversationId, `Received WhatsApp message from ${incoming.senderName}`);
       playSoundChime();
     };

@@ -1,6 +1,8 @@
 import { apiRequest } from '../../services/apiClient';
 
 export const inboxApi = {
+  loadMessages: (conversationId: string) =>
+    apiRequest<{ messages: any[] }>(`/api/conversations/${encodeURIComponent(conversationId)}/messages`),
   markConversationRead: (conversationId: string) =>
     apiRequest(`/api/conversations/${encodeURIComponent(conversationId)}/read`, { method: 'POST' }),
   sendMessage: (

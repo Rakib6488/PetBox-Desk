@@ -1,8 +1,9 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { requireAuth } from '../auth';
+import { requireAuth, requireRole } from '../auth';
 import { getGemini, imapConfig, resendConfig, smtpConfig, smtpTransportConfig } from '../config';
 import { dbPool } from '../db';
 import type { Server as SocketIOServer } from 'socket.io';
@@ -28,6 +29,7 @@ type PersistEmailInboundArgs = {
   sourceEmailId: string;
   externalMessageId: string;
   externalConversationKey: string;
+  attachments: Array<{ name: string; size: string; type: string; url?: string }>;
   incrementUnread: boolean;
 };
 
@@ -108,7 +110,7 @@ async function persistEmailInboundMessage(
          external_message_id,
          status
        )
-       VALUES ($1, $2, 'contact', $3, $4, 'text', 'email', NULL, $5, 'delivered')
+       VALUES ($1, $2, 'contact', $3, $4, 'text', 'email', $6::jsonb, $5, 'delivered')
        ON CONFLICT (channel, external_message_id) DO NOTHING
        RETURNING id`,
       [
@@ -117,6 +119,7 @@ async function persistEmailInboundMessage(
         args.fromEmail,
         args.content,
         args.externalMessageId,
+        JSON.stringify(args.attachments),
       ],
     );
 
@@ -185,7 +188,7 @@ emailRouter.post('/test-connection', async (_req, res) => {
   res.json(result);
 });
 
-emailRouter.post('/send', async (req, res) => {
+emailRouter.post('/send', requireRole('admin', 'supervisor', 'agent'), async (req, res) => {
   const { to, subject, body, html, inReplyTo, references } = req.body || {};
   if (!to || !subject || (!body && !html)) return res.status(400).json({ error: 'to, subject and body/html are required.' });
 
@@ -282,11 +285,27 @@ emailRouter.get('/fetch', async (req, res) => {
       if (total) {
         const start = Math.max(1, total - limit + 1);
         for await (const message of client.fetch(`${start}:${total}`, { source: true, flags: true, internalDate: true })) {
-          const parsed = await simpleParser(message.source);
+          const parsed = await simpleParser(message.source || '');
           const from = parsed.from?.value?.[0];
           const receivedAt = message.internalDate instanceof Date ? message.internalDate.toISOString() : message.internalDate || new Date().toISOString();
           const body = parsed.text || (typeof parsed.html === 'string' ? parsed.html.replace(/<[^>]+>/g, ' ') : '');
-          const emailRecord = { id: `imap_${message.uid || message.seq}`, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body, preview: body.slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '' };
+          const headerFingerprint = crypto.createHash('sha256')
+            .update([from?.address || '', receivedAt, parsed.subject || '', body.slice(0, 1000)].join('\\n'))
+            .digest('hex')
+            .slice(0, 32);
+          const stableSourceEmailId = message.uid
+            ? `imap_uid_${message.uid}`
+            : `imap_hash_${headerFingerprint}`;
+          const parsedAttachments = (parsed.attachments || []).map((attachment) => ({
+            name: attachment.filename || 'attachment',
+            size: String(attachment.size || attachment.content?.length || 0),
+            type: attachment.contentType || 'application/octet-stream',
+            ...(attachment.content?.length <= 5 * 1024 * 1024
+              ? { url: `data:${attachment.contentType || 'application/octet-stream'};base64,${attachment.content.toString('base64')}` }
+              : {}),
+          }));
+          const emailRecord = { id: stableSourceEmailId, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body, preview: body.slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '', attachments: parsedAttachments, hasAttachment: parsedAttachments.length > 0 };
+          let relationalPersistenceStatus: 'persisted' | 'workspace_only' = 'workspace_only';
           const conversationId = emailRecord.fromEmail
             ? stableEmailConversationId(emailRecord.fromEmail, emailRecord.id)
             : undefined;
@@ -304,8 +323,10 @@ emailRouter.get('/fetch', async (req, res) => {
                 sourceEmailId: emailRecord.id,
                 externalMessageId,
                 externalConversationKey,
+                attachments: parsedAttachments,
                 incrementUnread: !emailRecord.isRead,
               });
+              relationalPersistenceStatus = 'persisted';
 
               if (persisted.inserted && !emailRecord.isRead) {
                 io.of('/inbox').emit('badge:update', {
@@ -325,7 +346,7 @@ emailRouter.get('/fetch', async (req, res) => {
             console.error('DATABASE_URL is not configured; delivering email without unread persistence.');
           }
 
-          emails.push({ ...emailRecord, conversationId });
+          emails.push({ ...emailRecord, conversationId, relationalPersistenceStatus });
         }
       }
     } finally { lock.release(); await client.logout(); }

@@ -765,13 +765,15 @@ export const CustomerEmailModal: React.FC<CustomerEmailModalProps> = ({ isOpen, 
                             </div>
                             <div className="text-[10px] text-slate-400">{file.size}</div>
                           </div>
-                          <button
-                            onClick={() => showToast('info', `Downloaded customer attachment: ${file.name}`)}
-                            className="p-1 text-slate-400 hover:text-emerald-700"
-                            title="Download attachment"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </button>
+                          {file.url ? (
+                            <a href={file.url} download={file.name} className="p-1 text-slate-400 hover:text-emerald-700" title="Download attachment" aria-label={`Download ${file.name}`}>
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                          ) : (
+                            <button type="button" onClick={() => showToast('info', 'This attachment is metadata-only; no download URL is available.')} className="p-1 text-slate-400 hover:text-emerald-700" title="Attachment URL unavailable" aria-label={`Attachment URL unavailable for ${file.name}`}>
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>

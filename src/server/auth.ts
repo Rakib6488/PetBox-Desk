@@ -21,10 +21,12 @@ export function createSessionToken(userId: string, role: string, ttlSeconds = DE
 export function verifySessionToken(token?: string) {
   if (!token) return null;
   const [payload, signature] = token.split('.');
+  if (!payload || !signature) return null;
   const expected = sign(payload);
-  if (!payload || !signature || signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { userId: string; role: string; exp: number };
+    if (!data || typeof data.userId !== 'string' || !data.userId || typeof data.role !== 'string' || !Number.isFinite(data.exp)) return null;
     return data.exp > Math.floor(Date.now() / 1000) ? data : null;
   } catch {
     return null;

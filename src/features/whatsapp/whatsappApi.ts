@@ -3,7 +3,15 @@ import { io, type Socket } from 'socket.io-client';
 const backendUrl = import.meta.env.VITE_WHATSAPP_BACKEND_URL || window.location.origin;
 
 export type WhatsAppStatus = { connected: boolean; phoneNumber?: string };
-export type WhatsAppIncomingMessage = { messageId?: string; conversationId?: string; senderId: string; senderName: string; content: string; timestamp: number };
+export type WhatsAppIncomingMessage = {
+  messageId?: string;
+  conversationId?: string;
+  senderId: string;
+  senderName: string;
+  content: string;
+  timestamp: number;
+  relationalPersistenceStatus?: 'persisted' | 'workspace_only';
+};
 
 export function normalizeWhatsAppPhone(senderId: string): string {
   const withoutSuffix = senderId.trim().toLowerCase().replace(/@(s\.whatsapp\.net|c\.us|lid)$/i, '');

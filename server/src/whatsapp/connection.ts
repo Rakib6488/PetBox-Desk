@@ -296,6 +296,7 @@ async function connect(io: SocketIOServer): Promise<void> {
       };
 
       let unreadCount: number | undefined;
+      let relationalPersistenceStatus: 'persisted' | 'workspace_only' = 'workspace_only';
       if (dbPool) {
         try {
           const externalConversationKey =
@@ -310,6 +311,7 @@ async function connect(io: SocketIOServer): Promise<void> {
           });
 
           unreadCount = persisted.unreadCount;
+          relationalPersistenceStatus = 'persisted';
         } catch (error) {
           logger.error({
             err: error,
@@ -321,7 +323,10 @@ async function connect(io: SocketIOServer): Promise<void> {
         logger.warn('DATABASE_URL is not configured; delivering WhatsApp message without unread persistence');
       }
 
-      emit(io, 'whatsapp:message', normalized);
+      emit(io, 'whatsapp:message', {
+        ...normalized,
+        relationalPersistenceStatus,
+      });
       if (unreadCount !== undefined) emitBadgeUpdate(io, normalized.conversationId, unreadCount);
     }
   });

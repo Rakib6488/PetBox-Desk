@@ -147,10 +147,11 @@ export const ConversationList: React.FC = () => {
             const isSelected = selectedConversationId === conv.id;
 
             return (
-              <div
+              <button
                 key={conv.id}
+                type="button"
                 onClick={() => setSelectedConversationId(conv.id)}
-                className={`relative p-2.5 flex items-start gap-2.5 cursor-pointer transition-colors ${
+                className={`relative w-full text-left p-2.5 flex items-start gap-2.5 cursor-pointer transition-colors ${
                   isSelected
                     ? 'bg-[#E6F7F3]'
                     : 'bg-white hover:bg-slate-50'
@@ -205,7 +206,7 @@ export const ConversationList: React.FC = () => {
                     </span>
                   </div>
                 </div>
-              </div>
+              </button>
             );
           })
         )}

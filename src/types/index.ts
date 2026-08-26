@@ -136,6 +136,7 @@ export interface WaitingQuery {
   sourceEmailId?: string;
   messageId?: string;
   references?: string;
+  relationalPersistenceStatus?: 'persisted' | 'workspace_only';
 }
 
 export interface CustomerEmail {
@@ -157,11 +158,12 @@ export interface CustomerEmail {
   avatar?: string;
   threadCount?: number;
   hasAttachment?: boolean;
-  attachments?: { name: string; size: string; type: string }[];
+  attachments?: { name: string; size: string; type: string; url?: string }[];
   assignedAgentName?: string;
   accountNumber?: string;
   messageId?: string;
   references?: string;
+  relationalPersistenceStatus?: 'persisted' | 'workspace_only';
 }
 
 export interface EmailOperationsSettings {

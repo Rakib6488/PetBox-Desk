@@ -250,10 +250,12 @@ export const ChatWindow: React.FC = () => {
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 space-y-1">
                       {msg.attachments.map((att, idx) => (
-                        <div
+                        <button
                           key={idx}
+                          type="button"
+                          aria-label={`View attachment ${att.name}`}
                           onClick={() => setLightboxImage(att.url)}
-                          className="relative rounded overflow-hidden border border-slate-200 cursor-pointer group"
+                          className="relative rounded overflow-hidden border border-slate-200 cursor-pointer group text-left"
                         >
                           {att.type?.startsWith('image/') && att.url ? (
                             <img src={att.url} alt={att.name} className="max-h-44 w-auto rounded object-cover" />
@@ -263,7 +265,7 @@ export const ChatWindow: React.FC = () => {
                           <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-semibold gap-1">
                             <Maximize2 className="w-3.5 h-3.5" /> View
                           </div>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
