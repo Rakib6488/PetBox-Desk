@@ -39,6 +39,7 @@ export const ChatWindow: React.FC = () => {
   const [selectedSentiment, setSelectedSentiment] = useState<SentimentType>('negative');
   const [activeTag, setActiveTag] = useState<Tag | null>(null);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+  const [tagSearch, setTagSearch] = useState('');
   const [tagSelectionError, setTagSelectionError] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -78,19 +79,31 @@ export const ChatWindow: React.FC = () => {
 
   const handleSend = () => {
     if (!draftMessage.trim()) return;
-    if (!activeTag) {
-      setTagSelectionError('Select a category before sending a reply.');
-      setTagDropdownOpen(true);
-      return;
-    }
     const text = draftMessage.trim();
+    if (!sendReplyWithCategory(text)) return;
     setDraftMessage('');
-    sendMessage(text);
 
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
 
+  };
+
+  const sendReplyWithCategory = (
+    content: string,
+    messageType: 'text' | 'image' | 'file' | 'audio' | 'product_card' = 'text',
+    attachments?: MessageAttachment[],
+  ) => {
+    if (!activeTag) {
+      setTagSelectionError('Select a category before sending a reply.');
+      setTagDropdownOpen(true);
+      return false;
+    }
+    sendMessage(content, messageType, attachments);
+    setActiveTag(null);
+    setTagSearch('');
+    setTagSelectionError('');
+    return true;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -116,6 +129,9 @@ export const ChatWindow: React.FC = () => {
   };
 
   const isConversationClosed = selectedConversation.status === 'closed';
+  const filteredTags = tags
+    .filter((tag) => tag.name.toLowerCase().includes(tagSearch.trim().toLowerCase()))
+    .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
 
   const handleRealVoiceRecord = () => {
     if (voiceRecorderRef.current) {
@@ -130,7 +146,7 @@ export const ChatWindow: React.FC = () => {
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         const reader = new FileReader();
-        reader.onload = () => sendMessage('Voice message', 'audio', [{ url: String(reader.result || ''), name: 'voice-message.webm', size: `${Math.max(1, Math.round(blob.size / 1024))} KB`, type: blob.type }]);
+        reader.onload = () => { sendReplyWithCategory('Voice message', 'audio', [{ url: String(reader.result || ''), name: 'voice-message.webm', size: `${Math.max(1, Math.round(blob.size / 1024))} KB`, type: blob.type }]); };
         reader.readAsDataURL(blob);
         stream.getTracks().forEach((track) => track.stop());
         voiceRecorderRef.current = null;
@@ -360,7 +376,7 @@ export const ChatWindow: React.FC = () => {
                 const isImage = file.type.startsWith('image/');
                 const submitAttachment = (url: string) => {
                   const attachment: MessageAttachment = { url, name: file.name, size: `${Math.max(1, Math.round(file.size / 1024))} KB`, type: file.type || 'application/octet-stream' };
-                  sendMessage(`Attached file: ${file.name}`, isImage ? 'image' : 'file', [attachment]);
+                  sendReplyWithCategory(`Attached file: ${file.name}`, isImage ? 'image' : 'file', [attachment]);
                 };
                 const reader = new FileReader();
                 reader.onload = () => submitAttachment(String(reader.result || ''));
@@ -456,6 +472,42 @@ export const ChatWindow: React.FC = () => {
           </button>
         </div>
 
+        {tagDropdownOpen && !isConversationClosed && (
+          <div className="w-full rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+            <input
+              autoFocus
+              value={tagSearch}
+              onChange={(event) => setTagSearch(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape') setTagDropdownOpen(false); }}
+              placeholder="Search categories..."
+              className="mb-2 h-8 w-full rounded-lg border border-slate-200 px-2.5 text-xs text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+              aria-label="Search categories"
+            />
+            <div className="max-h-48 overflow-y-auto overscroll-contain">
+              {filteredTags.length === 0 ? (
+                <p className="px-2 py-4 text-center text-xs text-slate-400">No categories found.</p>
+              ) : filteredTags.map((tag) => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTag(tag);
+                    setTagSelectionError('');
+                    addTagToConversation(selectedConversation.id, tag);
+                    setTagSearch('');
+                    setTagDropdownOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 hover:bg-teal-50"
+                  title={tag.name}
+                >
+                  <span className="min-w-0 truncate">{tag.name}</span>
+                  {activeTag?.id === tag.id && <span className="ml-2 text-teal-600" aria-label="Selected">✓</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Bottom Action Bar matching screenshot: Tag selector + Sentiment dropdown + Red "End" button */}
         <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem] items-end gap-2 pt-1">
           {/* Left: Tag selector box matching screenshot: SPAM_Q » Other » und... ✖ */}
@@ -484,24 +536,6 @@ export const ChatWindow: React.FC = () => {
                 <ChevronDown className="w-3 h-3" />
               </button>
 
-              {tagDropdownOpen && !isConversationClosed && (
-                <div className="absolute bottom-full left-0 z-[60] mb-2 w-60 max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-xl overscroll-contain">
-                  {tags.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => {
-                        setActiveTag(t);
-                        setTagSelectionError('');
-                        addTagToConversation(selectedConversation.id, t);
-                        setTagDropdownOpen(false);
-                      }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between text-slate-700"
-                    >
-                      <span className="truncate">{t.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
 

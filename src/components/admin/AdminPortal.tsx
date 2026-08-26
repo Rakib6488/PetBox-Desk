@@ -19,6 +19,7 @@ import {
   Check,
   Tag as TagIcon,
   Smartphone,
+  Download,
 } from 'lucide-react';
 
 const ROLE_SUMMARIES: Array<{ role: UserRole; label: string; description: string }> = [
@@ -70,6 +71,28 @@ export const AdminPortal: React.FC = () => {
   const getConversationCount = (userId: string) => conversations.filter((conversation) => conversation.assignedAgentId === userId).length;
   const openTickets = conversations.filter((conversation) => conversation.status === 'open').length;
   const activeChannels = pages.filter((page) => (page.channelType === 'email' || page.channelType === 'whatsapp') && page.status === 'active').length;
+
+  const exportCsv = (rows: string[][], filename: string) => {
+    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n');
+    const link = document.createElement('a');
+    link.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+    link.download = filename;
+    link.click();
+  };
+
+  const exportAdminData = () => exportCsv([
+    ['Conversation ID', 'Customer', 'Customer Email', 'Channel', 'Status', 'Assigned Agent', 'Unread Count', 'Last Message At'],
+    ...conversations.map((conversation) => [
+      conversation.id,
+      conversation.contact.name,
+      conversation.contact.email || '',
+      conversation.channelType,
+      conversation.status,
+      conversation.assignedAgent?.name || supportUsers.find((agent) => agent.id === conversation.assignedAgentId)?.name || '',
+      String(conversation.unreadCount || 0),
+      conversation.lastMessageAt,
+    ]),
+  ], 'admin-email-whatsapp-data.csv');
 
   // Agent modal state
   const [agentModalOpen, setAgentModalOpen] = useState(false);
@@ -191,6 +214,10 @@ export const AdminPortal: React.FC = () => {
       {/* TAB CONTENT: Overview */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          <div className="flex items-center justify-between gap-3">
+            <div><h2 className="text-lg font-black text-slate-900">Admin overview</h2><p className="text-xs text-slate-500">Email and WhatsApp operational data.</p></div>
+            <button type="button" onClick={exportAdminData} className="flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-700"><Download className="h-3.5 w-3.5" /> Export CSV</button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
               <span className="text-[11px] font-bold text-slate-400 uppercase">Active Agents</span>

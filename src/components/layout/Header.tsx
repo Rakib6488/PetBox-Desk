@@ -20,6 +20,7 @@ export const Header: React.FC = () => {
     currentUser,
     updateUserStatus,
     currentRoute,
+    conversations,
     navigateTo,
     waitingQueue,
     landingLimit,
@@ -32,7 +33,12 @@ export const Header: React.FC = () => {
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [waitingQueueOpen, setWaitingQueueOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [logoutBlockedNotice, setLogoutBlockedNotice] = useState(false);
   const statusLabel = (status: AgentStatus) => status === 'away' ? 'Meeting' : status;
+  const activeAssignedQueries = conversations.filter((conversation) =>
+    conversation.assignedAgentId === currentUser.id
+    && (conversation.status === 'open' || conversation.status === 'pending')
+  ).length;
   const realMessageCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => {
     // Channel badges represent only queries waiting to be landed. Once a
     // query is landed, it must not keep inflating the top-level badge.
@@ -293,12 +299,24 @@ export const Header: React.FC = () => {
               )}
 
               {/* Logout */}
+              {logoutBlockedNotice && activeAssignedQueries > 0 && (
+                <p className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-800">
+                  Finish or close your active conversation before signing out.
+                </p>
+              )}
               <button
+                type="button"
                 onClick={() => {
+                  if (activeAssignedQueries > 0) {
+                    setLogoutBlockedNotice(true);
+                    return;
+                  }
                   logout();
                   setProfileDropdownOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center gap-1.5 border-t border-slate-100"
+                className={`w-full text-left px-3 py-1.5 flex items-center gap-1.5 border-t border-slate-100 ${activeAssignedQueries > 0 ? 'cursor-not-allowed text-slate-400' : 'text-rose-600 hover:bg-rose-50'}`}
+                aria-disabled={activeAssignedQueries > 0}
+                title={activeAssignedQueries > 0 ? 'Finish or close active conversations before signing out' : 'Sign out'}
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span>Sign Out</span>

@@ -257,7 +257,8 @@ coreRouter.post('/auth/login', async (req, res) => {
     if (user.status === 'disabled') return res.status(403).json({ error: 'This user account is disabled.' });
     const statusResult = await dbPool.query(
       `UPDATE users
-       SET status = 'online', status_started_at = NOW()
+       SET status = CASE WHEN role IN ('agent', 'supervisor') THEN 'offline' ELSE status END,
+           status_started_at = NOW()
        WHERE id = $1
        RETURNING id, name, email, role, status, avatar, status_started_at AS "statusStartedAt", created_at AS "createdAt"`,
       [user.id],
@@ -531,6 +532,97 @@ coreRouter.post('/conversations/:id/read', requireAuth, async (req, res) => {
   }
 });
 
+coreRouter.get('/conversations/:id/summary', requireAuth, async (req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+  try {
+    const result = await dbPool.query(
+      `SELECT
+         conversation_id AS "conversationId",
+         summary_text AS text,
+         customer_message_count AS "customerMessageCount",
+         last_customer_message AS "lastCustomerMessage",
+         last_customer_message_at AS "lastCustomerMessageAt",
+         updated_at AS "updatedAt"
+       FROM conversation_summaries
+       WHERE conversation_id = $1`,
+      [req.params.id],
+    );
+    res.json({ summary: result.rows[0] || null });
+  } catch (error) {
+    console.error('Conversation summary load failed:', error);
+    res.status(503).json({ error: 'Unable to load conversation summary.' });
+  }
+});
+
+coreRouter.get('/conversation-summaries', requireAuth, async (_req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+  try {
+    const result = await dbPool.query(
+      `SELECT
+         c.id AS "conversationId",
+         COALESCE(s.summary_text, CONCAT(COALESCE(NULLIF(ct.name, ''), 'Customer'), ' contacted support about: ', LEFT(COALESCE(latest.content, c.subject, ''), 180))) AS text,
+         COALESCE(s.customer_message_count, activity.customer_message_count, 0)::int AS "customerMessageCount",
+         COALESCE(s.last_customer_message, latest.content, '') AS "lastCustomerMessage",
+         COALESCE(s.last_customer_message_at, latest.created_at) AS "lastCustomerMessageAt",
+         COALESCE(s.updated_at, latest.created_at, c.updated_at) AS "updatedAt"
+       FROM conversations c
+       LEFT JOIN contacts ct ON ct.id = c.contact_id
+       LEFT JOIN conversation_summaries s ON s.conversation_id = c.id
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS customer_message_count
+         FROM messages m
+         WHERE m.conversation_id = c.id AND m.sender_type = 'contact'
+       ) activity ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT m.content, m.created_at
+         FROM messages m
+         WHERE m.conversation_id = c.id AND m.sender_type = 'contact'
+         ORDER BY m.created_at DESC
+         LIMIT 1
+       ) latest ON TRUE
+       WHERE c.channel IN ('email', 'whatsapp')
+         AND COALESCE(s.customer_message_count, activity.customer_message_count, 0) > 0
+       ORDER BY COALESCE(s.updated_at, latest.created_at, c.updated_at) DESC`,
+    );
+    res.json({ summaries: result.rows });
+  } catch (error) {
+    console.error('Conversation summaries load failed:', error);
+    res.status(503).json({ error: 'Unable to load conversation summaries.' });
+  }
+});
+
+coreRouter.put('/conversations/:id/summary', requireAuth, requireRole('admin', 'supervisor', 'agent'), async (req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+  const { text, customerMessageCount, lastCustomerMessage, lastCustomerMessageAt } = req.body || {};
+  if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'Summary text is required.' });
+  if (text.length > 2000) return res.status(413).json({ error: 'Summary text is too large.' });
+  const count = Number(customerMessageCount);
+  if (!Number.isInteger(count) || count < 0) return res.status(400).json({ error: 'customerMessageCount must be a non-negative integer.' });
+  try {
+    const conversation = await dbPool.query(`SELECT id FROM conversations WHERE id = $1`, [req.params.id]);
+    if (!conversation.rowCount) return res.status(404).json({ error: 'Conversation not found.' });
+    const result = await dbPool.query(
+      `INSERT INTO conversation_summaries
+         (conversation_id, summary_text, customer_message_count, last_customer_message, last_customer_message_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (conversation_id) DO UPDATE SET
+         summary_text = EXCLUDED.summary_text,
+         customer_message_count = EXCLUDED.customer_message_count,
+         last_customer_message = EXCLUDED.last_customer_message,
+         last_customer_message_at = EXCLUDED.last_customer_message_at,
+         updated_at = NOW()
+       RETURNING conversation_id AS "conversationId", summary_text AS text,
+         customer_message_count AS "customerMessageCount", last_customer_message AS "lastCustomerMessage",
+         last_customer_message_at AS "lastCustomerMessageAt", updated_at AS "updatedAt"`,
+      [req.params.id, text.trim(), count, typeof lastCustomerMessage === 'string' ? lastCustomerMessage : null, lastCustomerMessageAt || null],
+    );
+    res.json({ summary: result.rows[0] });
+  } catch (error) {
+    console.error('Conversation summary save failed:', error);
+    res.status(503).json({ error: 'Unable to save conversation summary.' });
+  }
+});
+
 coreRouter.get('/conversations/:id/messages', requireAuth, async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   try {
@@ -574,7 +666,7 @@ coreRouter.post('/conversations/:id/messages', requireAuth, requireRole('admin',
   const {
     content,
     messageType = 'text',
-    channel = 'live_chat',
+    channel,
     attachments,
     externalMessageId,
     externalConversationKey,
@@ -582,7 +674,8 @@ coreRouter.post('/conversations/:id/messages', requireAuth, requireRole('admin',
   if (typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Message content is required.' });
   if (content.length > 10000) return res.status(413).json({ error: 'Message content is too large.' });
   if (!['text', 'image', 'file', 'audio', 'product_card'].includes(messageType)) return res.status(400).json({ error: 'Unsupported message type.' });
-  const safeChannel = ['facebook', 'live_chat', 'email', 'whatsapp'].includes(channel) ? channel : 'live_chat';
+  if (channel !== 'email' && channel !== 'whatsapp') return res.status(400).json({ error: 'Only Email and WhatsApp channels are supported.' });
+  const safeChannel = channel;
   const relationalChannel = safeChannel === 'email' || safeChannel === 'whatsapp';
   const safeAttachments = Array.isArray(attachments) ? attachments : null;
   const safeExternalMessageId = typeof externalMessageId === 'string' && externalMessageId.trim()

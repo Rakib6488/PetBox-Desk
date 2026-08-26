@@ -29,6 +29,14 @@ export const inboxApi = {
     apiRequest(`/api/conversations/${encodeURIComponent(conversationId)}`, {
       method: 'PATCH', body: JSON.stringify(fields),
     }),
+  saveConversationSummary: (conversationId: string, summary: Record<string, unknown>) =>
+    apiRequest(`/api/conversations/${encodeURIComponent(conversationId)}/summary`, {
+      method: 'PUT', body: JSON.stringify(summary),
+    }),
+  loadConversationSummary: (conversationId: string) =>
+    apiRequest<{ summary: Record<string, unknown> | null }>(`/api/conversations/${encodeURIComponent(conversationId)}/summary`),
+  loadConversationSummaries: () =>
+    apiRequest<{ summaries: Array<{ conversationId: string; text: string; customerMessageCount: number; lastCustomerMessage: string; lastCustomerMessageAt: string; updatedAt: string }> }>('/api/conversation-summaries'),
   loadState: () => apiRequest<{ state: any; version?: number }>('/api/state'),
   saveState: (state: unknown, version = 0) => apiRequest<{ success: boolean; version: number }>('/api/state', { method: 'PUT', body: JSON.stringify({ ...(state as Record<string, unknown>), version }) }),
 };
