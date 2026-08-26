@@ -254,7 +254,15 @@ coreRouter.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
     loginFailures.delete(attemptKey);
-    const { password_hash: _passwordHash, ...safeUser } = user;
+    if (user.status === 'disabled') return res.status(403).json({ error: 'This user account is disabled.' });
+    const statusResult = await dbPool.query(
+      `UPDATE users
+       SET status = 'online', status_started_at = NOW()
+       WHERE id = $1
+       RETURNING id, name, email, role, status, avatar, status_started_at AS "statusStartedAt", created_at AS "createdAt"`,
+      [user.id],
+    );
+    const safeUser = statusResult.rows[0];
     const sessionTtl = rememberMe ? 30 * 24 * 60 * 60 : 8 * 60 * 60;
     setSessionCookie(res, createSessionToken(user.id, user.role, sessionTtl), sessionTtl);
     res.json({ user: safeUser });
@@ -264,7 +272,35 @@ coreRouter.post('/auth/login', async (req, res) => {
   }
 });
 
-coreRouter.post('/auth/logout', (_req, res) => {
+coreRouter.patch('/auth/status', requireAuth, async (req, res) => {
+  if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
+  const requestedStatus = req.body?.status;
+  if (!['online', 'away', 'break', 'offline'].includes(requestedStatus)) {
+    return res.status(400).json({ error: 'Status must be online, away, break or offline.' });
+  }
+  try {
+    const result = await dbPool.query(
+      `UPDATE users
+       SET status = $1, status_started_at = NOW()
+       WHERE id = $2
+       RETURNING id, name, email, role, status, avatar, status_started_at AS "statusStartedAt", created_at AS "createdAt"`,
+      [requestedStatus, res.locals.user.id],
+    );
+    res.json({ user: result.rows[0] });
+  } catch (error) {
+    console.error('Agent status update failed:', error);
+    res.status(503).json({ error: 'Unable to save agent status.' });
+  }
+});
+
+coreRouter.post('/auth/logout', requireAuth, async (_req, res) => {
+  if (dbPool) {
+    try {
+      await dbPool.query(`UPDATE users SET status = 'offline', status_started_at = NOW() WHERE id = $1`, [res.locals.user.id]);
+    } catch (error) {
+      console.error('Logout status update failed:', error);
+    }
+  }
   clearSessionCookie(res);
   res.json({ success: true });
 });

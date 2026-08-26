@@ -503,6 +503,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentUser(updatedUser);
       setUsers((prev) => prev.map((user) => (user.id === currentUser.id ? updatedUser : user)));
       addAuditLog('AGENT_STATUS_CHANGE', 'User', currentUser.id, `Status updated to ${nextStatus}`);
+      void authApi.updateStatus(nextStatus).catch((error) => console.error('Failed to save agent pause status:', error));
     }
     addAuditLog(
       next ? 'AGENT_PAUSED' : 'AGENT_RESUMED',
@@ -886,6 +887,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
     setIsAgentPaused(status !== 'online');
     addAuditLog('AGENT_STATUS_CHANGE', 'User', currentUser.id, `Status updated to ${status}`);
+    void authApi.updateStatus(status).then(({ user }) => {
+      if (user) {
+        setCurrentUser(user);
+        setUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)));
+      }
+    }).catch((error) => {
+      console.error('Failed to save agent status:', error);
+    });
   };
 
   // Send message as agent

@@ -9,7 +9,6 @@ import {
   FileText,
   ShoppingBag,
   Bookmark,
-  Info,
   Mic,
   Send,
   RotateCcw,
@@ -410,16 +409,6 @@ export const ChatWindow: React.FC = () => {
               title="Bookmark / Code"
             >
               <Bookmark className="w-3.5 h-3.5" />
-            </button>
-
-            {/* 7. Info */}
-            <button
-              onClick={() => setDraftMessage((prev) => `${prev}${prev ? '\n\n' : ''}Customer details: ${selectedConversation.contact.email || 'No email on file'} | ${selectedConversation.contact.phone || 'No phone on file'}`)}
-              disabled={isConversationClosed}
-              className="hover:text-slate-700 transition-colors"
-              title="Info"
-            >
-              <Info className="w-3.5 h-3.5" />
             </button>
 
             {/* 8. Voice Mic */}

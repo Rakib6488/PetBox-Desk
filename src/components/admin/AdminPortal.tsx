@@ -8,7 +8,6 @@ import {
   Layers,
   FileText,
   Shield,
-  Clock,
   Settings,
   Plus,
   Trash2,
@@ -650,7 +649,7 @@ export const AdminPortal: React.FC = () => {
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-              <Clock className="w-4 h-4 text-teal-600" /> Service Level Agreement (SLA) & Escalations
+              Service Level Agreement (SLA) & Escalations
             </h3>
           </div>
 

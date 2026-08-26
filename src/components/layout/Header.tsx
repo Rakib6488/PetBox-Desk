@@ -5,8 +5,6 @@ import {
   Menu,
   MessageSquare,
   Mail,
-  Clock,
-  Info,
   ChevronDown,
   LogOut,
   Shield,
@@ -37,6 +35,7 @@ export const Header: React.FC = () => {
   const [waitingQueueOpen, setWaitingQueueOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const statusLabel = (status: AgentStatus) => status === 'away' ? 'Meeting' : status;
   const realMessageCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => {
     // Channel badges represent only queries waiting to be landed. Once a
     // query is landed, it must not keep inflating the top-level badge.
@@ -224,7 +223,7 @@ export const Header: React.FC = () => {
         </div>
       </div>
 
-      {/* Right side matching screenshot: Clock [🕒] + Info [ⓘ] + Profile Pill [👤 MD Rifat Molla] */}
+      {/* Right-side account and availability controls */}
       <div className="ml-auto flex items-center gap-2">
         {(currentUser.role === 'admin' || currentUser.role === 'supervisor') && !currentRoute.startsWith('/bi/') && (
           <button onClick={() => navigateTo('/bi/summary')} className="flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-700 hover:bg-teal-100" title="Customer Summary Reports">
@@ -241,7 +240,7 @@ export const Header: React.FC = () => {
               title="Agent Availability"
             >
               <span className={`h-2 w-2 rounded-full ${currentUser.status === 'online' ? 'bg-emerald-500' : currentUser.status === 'away' ? 'bg-amber-500' : currentUser.status === 'break' ? 'bg-blue-500' : 'bg-slate-400'}`} />
-              <span className="hidden sm:inline capitalize">{currentUser.status}</span>
+              <span className="hidden sm:inline capitalize">{statusLabel(currentUser.status)}</span>
               <ChevronDown className="h-3 w-3 text-slate-400" />
             </button>
             {availabilityOpen && (
@@ -255,29 +254,13 @@ export const Header: React.FC = () => {
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-slate-50 ${currentUser.status === status ? 'bg-slate-50 font-bold text-teal-700' : 'text-slate-700'}`}
                   >
                     <span className={`h-2 w-2 rounded-full ${status === 'online' ? 'bg-emerald-500' : status === 'away' ? 'bg-amber-500' : status === 'break' ? 'bg-blue-500' : 'bg-slate-400'}`} />
-                    <span className="capitalize">{status}</span>
+                    <span className="capitalize">{statusLabel(status)}</span>
                   </button>
                 ))}
               </div>
             )}
           </div>
         )}
-
-        {/* Clock icon in circle */}
-        <button
-          className="w-7 h-7 rounded-full border border-slate-200 hover:bg-slate-50 text-slate-400 flex items-center justify-center transition-colors"
-          title="Shift Time"
-        >
-          <Clock className="w-3.5 h-3.5 text-slate-500" />
-        </button>
-
-        {/* Info icon in circle */}
-        <button
-          className="w-7 h-7 rounded-full border border-slate-200 hover:bg-slate-50 text-slate-400 flex items-center justify-center transition-colors"
-          title="System Information"
-        >
-          <Info className="w-3.5 h-3.5 text-slate-500" />
-        </button>
 
         {/* User Profile Pill button matching screenshot */}
         <div className="relative">

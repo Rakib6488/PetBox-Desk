@@ -5,7 +5,6 @@ import {
   UserCheck,
   Bookmark,
   Users,
-  Info,
   Pause,
   Play,
   Paperclip,
@@ -96,13 +95,6 @@ export const ConversationList: React.FC = () => {
             <Users className="w-3.5 h-3.5" />
           </button>
 
-          {/* Info */}
-          <button
-            className="w-6 h-6 rounded flex items-center justify-center hover:bg-slate-100 text-slate-400 transition-colors"
-            title={`Active: ${filteredConversations.length} / ${landingLimit} Landed | Waiting Queue: ${waitingQueue.length}`}
-          >
-            <Info className="w-3.5 h-3.5" />
-          </button>
         </div>
 
         {/* 1-Click Direct Pause / Resume Toggle (No Modal Popup) */}

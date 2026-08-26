@@ -1,35 +1,28 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart, Layers, FileText, Settings, Tag as TagIcon } from 'lucide-react';
+import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart, Layers, FileText, Settings, Tag as TagIcon, Menu, MessageSquare } from 'lucide-react';
 
 export const SidebarNav: React.FC = () => {
   const { currentRoute, navigateTo, currentUser } = useApp();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   if (currentUser.role === 'bi') return null;
   const isAdmin = currentUser.role === 'admin';
-  const isSummaryRoute = currentRoute === '/agent/summary' || currentRoute.startsWith('/admin/summary/');
 
   return (
     <aside className={`${isAdmin ? 'w-52 items-stretch px-2' : 'w-10 items-center'} border-r border-slate-200 bg-white flex flex-col py-2.5 justify-between select-none shrink-0 z-10`}>
       {/* Top Camera / Snapshot icon matching screenshot */}
       <div className={`flex flex-col gap-2 ${isAdmin ? 'items-stretch' : 'items-center'}`}>
-        {!isAdmin && <button
-          type="button"
-          onClick={() => {
-            if (currentUser.role === 'admin') {
-              navigateTo('/admin/dashboard');
-            } else {
-              navigateTo('/agent/inbox');
-            }
-          }}
-          className={`${isAdmin ? 'w-full justify-start gap-2 px-3' : 'w-7 justify-center'} h-7 rounded border flex items-center transition-colors shadow-2xs ${currentRoute === (isAdmin ? '/admin/dashboard' : '/agent/inbox') ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
-          title={currentUser.role === 'admin' ? 'Admin Dashboard' : 'Agent Inbox'}
-          aria-label={currentUser.role === 'admin' ? 'Admin Dashboard' : 'Agent Inbox'}
-        >
-          <Inbox className="w-4 h-4 text-slate-600 stroke-[1.8]" />
-          {isAdmin && <span className="text-xs font-semibold">Dashboard</span>}
-        </button>}
-        {!isAdmin && <button
+        {!isAdmin && <div className="relative">
+          <button type="button" onClick={() => setMenuOpen((open) => !open)} className="w-7 h-7 rounded border border-slate-300 bg-slate-50 flex items-center justify-center text-slate-700 hover:bg-slate-100" title="Open navigation menu" aria-label="Open navigation menu" aria-expanded={menuOpen}>
+            <Menu className="w-4 h-4" />
+          </button>
+          {menuOpen && <div className="absolute left-8 top-0 z-50 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+            <button type="button" onClick={() => { navigateTo('/agent/inbox'); setMenuOpen(false); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold ${currentRoute === '/agent/inbox' ? 'bg-teal-50 text-teal-700' : 'text-slate-700 hover:bg-slate-50'}`}><MessageSquare className="h-4 w-4" /> Inbox</button>
+            <button type="button" onClick={() => { navigateTo('/agent/summary'); setMenuOpen(false); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold ${currentRoute === '/agent/summary' ? 'bg-teal-50 text-teal-700' : 'text-slate-700 hover:bg-slate-50'}`}><List className="h-4 w-4" /> Summary</button>
+          </div>}
+        </div>}
+        {false && !isAdmin && <button
           type="button"
           onClick={() => navigateTo('/agent/assigned')}
           className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/assigned' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-teal-700'}`}
@@ -38,7 +31,7 @@ export const SidebarNav: React.FC = () => {
         >
           <CornerUpLeft className="w-4 h-4" />
         </button>}
-        {!isAdmin && <button
+        {false && !isAdmin && <button
           type="button"
           onClick={() => navigateTo('/agent/summary')}
           className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/summary' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}
@@ -60,7 +53,8 @@ export const SidebarNav: React.FC = () => {
             <button type="button" onClick={() => navigateTo('/admin/summary/all')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/all' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><List className="h-3.5 w-3.5" /> All summaries</button>
             <button type="button" onClick={() => navigateTo('/admin/summary/agents')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/agents' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><Users className="h-3.5 w-3.5" /> Agent-wise</button>
           </div>
-        ) : <button
+        ) : null /* Agent summary is already rendered above. */}
+        {false && <button
           type="button"
           onClick={() => navigateTo('/agent/summary')}
           className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/summary' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}
