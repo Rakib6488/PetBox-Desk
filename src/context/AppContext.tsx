@@ -823,7 +823,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setCurrentUser(updatedUser);
     setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
     setIsAgentPaused(status !== 'online');
-    if (status !== 'online') setSelectedConversationId(null);
     addAuditLog('AGENT_STATUS_CHANGE', 'User', currentUser.id, `Status updated to ${status}`);
   };
 
