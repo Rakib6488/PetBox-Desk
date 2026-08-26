@@ -1,111 +1,50 @@
 import React, { useState } from 'react';
+import { ChevronDown, CornerUpLeft, FileBarChart, FileText, Inbox, Layers, List, Menu, Send, Settings, Shield, Tag as TagIcon, Users } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart, Layers, FileText, Settings, Tag as TagIcon, Menu } from 'lucide-react';
 
 export const SidebarNav: React.FC = () => {
   const { currentRoute, navigateTo, currentUser } = useApp();
   const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(true);
 
   if (currentUser.role === 'bi') return null;
   const isAdmin = currentUser.role === 'admin';
-  const expanded = isAdmin || hovered || pinned;
+  const expanded = hovered || pinned;
+  const go = (route: string) => navigateTo(route as any);
+  const itemClass = (active: boolean) => `${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded-lg flex items-center text-xs font-semibold transition-colors ${active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`;
+  const adminItems = [
+    ['/admin/agents', 'Agents', Users], ['/admin/pages', 'Pages', Layers], ['/admin/tags', 'Tags', TagIcon],
+    ['/admin/quick-responses', 'Quick Responses', FileText], ['/admin/sla', 'SLA', Shield],
+    ['/admin/audit-logs', 'Audit Logs', Shield], ['/admin/roles', 'Roles & Permissions', Shield], ['/admin/settings', 'Settings', Settings],
+  ] as const;
 
   return (
-    <aside onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} className={`${isAdmin ? 'w-52 items-stretch px-2' : expanded ? 'w-52 items-stretch px-2' : 'w-10 items-center'} border-r border-slate-200 bg-white flex flex-col py-2.5 justify-between select-none shrink-0 z-10 transition-[width] duration-200`}>
-      {/* Top Camera / Snapshot icon matching screenshot */}
-      <div className={`flex flex-col gap-2 ${isAdmin ? 'items-stretch' : 'items-center'}`}>
-        {!isAdmin && <>
-          <button type="button" onClick={() => setPinned((value) => !value)} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-7 rounded border border-slate-300 bg-slate-50 flex items-center text-slate-700 hover:bg-slate-100`} title="Toggle navigation sidebar" aria-label="Toggle navigation sidebar" aria-expanded={expanded}>
-            <Menu className="w-4 h-4 shrink-0" />
-            {expanded && <span className="text-xs font-semibold">Menu</span>}
-          </button>
-          <button type="button" onClick={() => navigateTo('/agent/inbox')} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded flex items-center ${currentRoute === '/agent/inbox' ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`} title="Inbox" aria-label="Inbox">
-            <Inbox className="w-4 h-4 shrink-0" />{expanded && <span className="text-xs font-semibold">Inbox</span>}
-          </button>
-          <button type="button" onClick={() => navigateTo('/agent/assigned')} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded flex items-center ${currentRoute === '/agent/assigned' ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`} title="Assigned" aria-label="Assigned">
-            <CornerUpLeft className="w-4 h-4 shrink-0" />{expanded && <span className="text-xs font-semibold">Assigned</span>}
-          </button>
-          <button type="button" onClick={() => navigateTo('/agent/summary')} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded flex items-center ${currentRoute === '/agent/summary' ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`} title="Summary" aria-label="Summary">
-            <List className="w-4 h-4 shrink-0" />{expanded && <span className="text-xs font-semibold">Summary</span>}
-          </button>
-        </>}
-        {false && !isAdmin && <button
-          type="button"
-          onClick={() => navigateTo('/agent/assigned')}
-          className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/assigned' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-teal-700'}`}
-          title="Assigned conversations"
-          aria-label="Assigned conversations"
-        >
-          <CornerUpLeft className="w-4 h-4" />
-        </button>}
-        {false && !isAdmin && <button
-          type="button"
-          onClick={() => navigateTo('/agent/summary')}
-          className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/summary' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}
-          title="Complete Summary"
-          aria-label="Complete Summary"
-        >
-          <List className="w-4 h-4" />
-        </button>}
-        {isAdmin && <button
-          type="button"
-          onClick={() => navigateTo('/admin/dashboard')}
-          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${currentRoute === '/admin/dashboard' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
-        >
-          <Settings className="h-3.5 w-3.5" /> Dashboard
-        </button>}
-        {isAdmin ? (
-          <div className="w-full rounded-lg border border-slate-200 bg-slate-50 p-1">
-            <div className="flex items-center justify-between rounded px-2 py-1.5 text-xs font-bold text-slate-700"><span className="flex items-center gap-2"><FileBarChart className="h-4 w-4" /> Summary</span><ChevronDown className="h-3.5 w-3.5" /></div>
-            <button type="button" onClick={() => navigateTo('/admin/summary/all')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/all' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><List className="h-3.5 w-3.5" /> All summaries</button>
-            <button type="button" onClick={() => navigateTo('/admin/summary/agents')} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 pl-8 text-left text-xs font-semibold ${currentRoute === '/admin/summary/agents' ? 'bg-teal-100 text-teal-700' : 'text-slate-600 hover:bg-white'}`}><Users className="h-3.5 w-3.5" /> Agent-wise</button>
-          </div>
-        ) : null /* Agent summary is already rendered above. */}
-        {false && <button
-          type="button"
-          onClick={() => navigateTo('/agent/summary')}
-          className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${currentRoute === '/agent/summary' ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700'}`}
-          title="Complete Summary"
-          aria-label="Complete Summary"
-        >
-          <List className="w-4 h-4" />
-        </button>}
-        {isAdmin && <div className="mt-1 flex w-full flex-col gap-1 border-t border-slate-100 pt-2">
-          {[
-            ['/admin/agents', 'Agents', Users],
-            ['/admin/pages', 'Pages', Layers],
-            ['/admin/tags', 'Tags', TagIcon],
-            ['/admin/quick-responses', 'Quick Responses', FileText],
-            ['/admin/sla', 'SLA', Shield],
-            ['/admin/audit-logs', 'Audit Logs', Shield],
-            ['/admin/roles', 'Roles & Permissions', Shield],
-            ['/admin/settings', 'Settings', Settings],
-          ].map(([route, label, Icon]) => (
-            <button key={route} type="button" onClick={() => navigateTo(route as any)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all ${currentRoute === route ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}>
-              <Icon className="h-3.5 w-3.5" /> {label}
-            </button>
-          ))}
-        </div>}
-      </div>
-
-      {/* Bottom Send / Plane icon matching screenshot */}
-      <div className="flex flex-col items-center gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            navigateTo(isAdmin ? '/admin/dashboard' : '/agent/inbox');
-          }}
-          className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors"
-          title={currentUser.role === 'admin' ? 'Admin Dashboard' : 'Agent Inbox'}
-        >
-          {isAdmin ? (
-            <Shield className="w-3.5 h-3.5 text-slate-600" />
-          ) : (
-            <Send className="w-3.5 h-3.5 text-slate-600 rotate-45" />
-          )}
+    <aside onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} className={`${expanded ? 'w-52 items-stretch px-2' : 'w-10 items-center'} shrink-0 z-10 flex flex-col justify-between border-r border-slate-200 bg-white py-2.5 select-none transition-[width] duration-200`} aria-label="Primary navigation">
+      <nav className="flex min-w-0 flex-col items-stretch gap-1">
+        <button type="button" onClick={() => setPinned(value => !value)} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded-lg flex items-center text-slate-700 hover:bg-slate-100`} title="Toggle navigation sidebar" aria-label="Toggle navigation sidebar" aria-expanded={expanded}>
+          <Menu className="h-4 w-4 shrink-0" />{expanded && <span>Menu</span>}
         </button>
-      </div>
+        {isAdmin ? <>
+          <button type="button" onClick={() => go('/admin/dashboard')} className={itemClass(currentRoute === '/admin/dashboard')} title="Dashboard" aria-label="Dashboard"><Settings className="h-4 w-4 shrink-0" />{expanded && <span>Dashboard</span>}</button>
+          <div className={`${expanded ? 'w-full' : 'w-7'} rounded-lg border border-slate-200 bg-slate-50`}>
+            <button type="button" onClick={() => setSummaryOpen(value => !value)} className={`${expanded ? 'w-full justify-between px-3' : 'w-7 justify-center'} h-8 rounded-lg flex items-center text-slate-700`} title="Summary" aria-label="Summary" aria-expanded={summaryOpen}>
+              <span className="flex items-center gap-3"><FileBarChart className="h-4 w-4 shrink-0" />{expanded && <span className="text-xs font-semibold">Summary</span>}</span>
+              {expanded && <ChevronDown className={`h-3.5 w-3.5 transition-transform ${summaryOpen ? '' : '-rotate-90'}`} />}
+            </button>
+            {expanded && summaryOpen && <div className="space-y-1 px-1 pb-1">
+              <button type="button" onClick={() => go('/admin/summary/all')} className={itemClass(currentRoute === '/admin/summary/all')}><List className="h-4 w-4 shrink-0" /><span>All summaries</span></button>
+              <button type="button" onClick={() => go('/admin/summary/agents')} className={itemClass(currentRoute === '/admin/summary/agents')}><Users className="h-4 w-4 shrink-0" /><span>Agent-wise</span></button>
+            </div>}
+          </div>
+          {adminItems.map(([route, label, Icon]) => <button key={route} type="button" onClick={() => go(route)} className={itemClass(currentRoute === route)} title={label} aria-label={label}><Icon className="h-4 w-4 shrink-0" />{expanded && <span>{label}</span>}</button>)}
+        </> : <>
+          <button type="button" onClick={() => go('/agent/inbox')} className={itemClass(currentRoute === '/agent/inbox')} title="Inbox" aria-label="Inbox"><Inbox className="h-4 w-4 shrink-0" />{expanded && <span>Inbox</span>}</button>
+          <button type="button" onClick={() => go('/agent/assigned')} className={itemClass(currentRoute === '/agent/assigned')} title="Assigned" aria-label="Assigned"><CornerUpLeft className="h-4 w-4 shrink-0" />{expanded && <span>Assigned</span>}</button>
+          <button type="button" onClick={() => go('/agent/summary')} className={itemClass(currentRoute === '/agent/summary')} title="Summary" aria-label="Summary"><List className="h-4 w-4 shrink-0" />{expanded && <span>Summary</span>}</button>
+        </>}
+      </nav>
+      <button type="button" onClick={() => go(isAdmin ? '/admin/dashboard' : '/agent/inbox')} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded-full bg-slate-100 flex items-center text-slate-600 hover:bg-slate-200`} title={isAdmin ? 'Dashboard' : 'Inbox'} aria-label={isAdmin ? 'Dashboard' : 'Inbox'}>{isAdmin ? <Shield className="h-3.5 w-3.5 shrink-0" /> : <Send className="h-3.5 w-3.5 shrink-0 rotate-45" />}{expanded && <span className="text-xs font-semibold">{isAdmin ? 'Dashboard' : 'Inbox'}</span>}</button>
     </aside>
   );
 };
