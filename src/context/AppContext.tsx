@@ -30,8 +30,8 @@ function normalizeEmailAddress(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function stableEmailConversationId(email: string, sourceEmailId: string): string {
-  return `conv_email_${encodeURIComponent(normalizeEmailAddress(email))}_${encodeURIComponent(sourceEmailId)}`;
+function stableEmailConversationId(email: string): string {
+  return `conv_email_${encodeURIComponent(normalizeEmailAddress(email))}`;
 }
 
 export type ActiveNavTab =
@@ -327,10 +327,48 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         )
       : undefined;
     const existingContactConversation = existingEmailContactConversation || existingWhatsAppContactConversation;
+    if (existingContactConversation) {
+      const messageId = item.channelType === 'email'
+        ? `email_msg_${item.sourceEmailId || item.messageId || item.id}`
+        : `wa_msg_${item.messageId || item.id}`;
+      const appendedMessage: Message = {
+        id: messageId,
+        conversationId: existingContactConversation.id,
+        senderType: 'contact',
+        senderId: existingContactConversation.contactId,
+        senderName: item.name || existingContactConversation.contact.name,
+        content: item.message,
+        messageType: 'text',
+        createdAt: item.createdAt,
+        isRead: selectedConversationId === existingContactConversation.id,
+        ...(item.relationalPersistenceStatus === 'workspace_only'
+          ? { metadata: { relationalPersistenceStatus: 'workspace_only' } }
+          : {}),
+      };
+      if (!messagesRef.current.some((message) => message.id === messageId)) {
+        setMessages((previous) => [...previous, appendedMessage]);
+      }
+      setConversations((previous) => previous.map((conversation) => conversation.id === existingContactConversation.id ? {
+        ...conversation,
+        lastMessageAt: item.createdAt,
+        lastMessageText: item.message,
+        sourceEmailId: item.channelType === 'email' ? item.sourceEmailId : conversation.sourceEmailId,
+        emailMessageId: item.channelType === 'email' ? item.messageId : conversation.emailMessageId,
+        emailReferences: item.channelType === 'email' ? item.references : conversation.emailReferences,
+        unreadCount: selectedConversationId === conversation.id ? 0 : conversation.unreadCount + 1,
+        status: conversation.status === 'closed' ? 'open' : conversation.status,
+      } : conversation));
+      if (item.channelType === 'email' && item.sourceEmailId) {
+        setCustomerEmails((previous) => previous.map((email) => email.id === item.sourceEmailId
+          ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name }
+          : email));
+      }
+      return existingContactConversation;
+    }
     const contactId = existingContactConversation?.contactId
       || `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const convId = item.channelType === 'email' && item.sourceEmailId
-      ? item.conversationId || stableEmailConversationId(item.email, item.sourceEmailId)
+      ? item.conversationId || stableEmailConversationId(item.email)
       : item.channelType === 'whatsapp'
         ? item.conversationId || `conv_wa_${normalizedWhatsAppPhone}`
         : `conv_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -415,6 +453,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setWaitingQueue((previous) => {
       const duplicate = previous.some((query) => query.id === item.id
         || (item.sourceEmailId && query.sourceEmailId === item.sourceEmailId)
+        || (item.channelType === 'email' && normalizeEmailAddress(query.email) === normalizeEmailAddress(item.email))
         || (item.channelType === 'whatsapp' && query.whatsappJid === item.whatsappJid && query.createdAt === item.createdAt));
       return duplicate ? previous : [...previous, item];
     });
@@ -623,11 +662,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (Array.isArray(data.conversations)) {
             const allMessages = Array.isArray(data.messages) ? data.messages as Message[] : [];
             const recentMessages = allMessages.filter((message) => isRecent(message.createdAt));
-            const seenEmailConversationSources = new Set<string>();
+            const conversationIdsBySender = new Map<string, string>();
+            const duplicateConversationIds = new Map<string, string>();
             const cleanConversations = data.conversations.filter((conversation: Conversation) => {
-              if (conversation.channelType === 'email' && conversation.sourceEmailId) {
-                if (seenEmailConversationSources.has(conversation.sourceEmailId)) return false;
-                seenEmailConversationSources.add(conversation.sourceEmailId);
+              const rawSenderIdentity = conversation.channelType === 'email'
+                ? conversation.contact?.email || ''
+                : conversation.channelType === 'whatsapp'
+                  ? conversation.contact?.whatsappJid || conversation.contact?.phone || ''
+                  : '';
+              const senderKey = rawSenderIdentity.trim()
+                ? conversation.channelType === 'email'
+                  ? normalizeEmailAddress(rawSenderIdentity)
+                  : normalizeWhatsAppPhone(rawSenderIdentity)
+                : '';
+              if (senderKey) {
+                const identityKey = `${conversation.channelType}:${senderKey}`;
+                const canonicalId = conversationIdsBySender.get(identityKey);
+                if (canonicalId) {
+                  duplicateConversationIds.set(conversation.id, canonicalId);
+                  return false;
+                }
+                conversationIdsBySender.set(identityKey, conversation.id);
               }
               const customerMessages = allMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
               const latestCustomerAt = customerMessages.map((message) => message.createdAt).sort().at(-1) || conversation.lastMessageAt;
@@ -636,6 +691,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               return isRecent(latestCustomerAt) && !isOldPromotionalEmail;
             });
             const allowedConversationIds = new Set(cleanConversations.map((conversation: Conversation) => conversation.id));
+            const hydratedMessages = recentMessages.map((message) => ({
+              ...message,
+              conversationId: duplicateConversationIds.get(message.conversationId) || message.conversationId,
+            }));
             const workspaceUsers = Array.isArray(data.users) ? data.users as User[] : [];
             const knownUserIds = new Set(workspaceUsers.map((user) => user.id));
             const routedConversations = cleanConversations.map((conversation: Conversation) => {
@@ -654,12 +713,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             });
             setConversations(routedConversations
               .map((conversation: Conversation) => {
-                const customerMessages = recentMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
+                const customerMessages = hydratedMessages.filter((message) => message.conversationId === conversation.id && message.senderType === 'contact');
                 return customerMessages.length ? { ...conversation, summary: createConversationSummary(conversation, customerMessages) } : conversation;
               })
               .sort((a: Conversation, b: Conversation) => Date.parse(b.lastMessageAt) - Date.parse(a.lastMessageAt)));
             if (Array.isArray(data.messages)) {
-              setMessages(recentMessages
+              setMessages(hydratedMessages
                 .filter((message) => allowedConversationIds.has(message.conversationId))
                 .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)));
             }
@@ -758,7 +817,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!isLoggedIn || !selectedConversationId) return;
     if (selectedConversation?.channelType !== 'email' && selectedConversation?.channelType !== 'whatsapp') return;
     let active = true;
-    void inboxApi.loadMessages(selectedConversationId)
+    const externalConversationKey = selectedConversation?.channelType === 'whatsapp'
+      ? `whatsapp:whatsapp:${normalizeWhatsAppPhone(selectedConversation.contact?.whatsappJid || selectedConversation.contact?.phone || '')}`
+      : `email:default-mailbox:${normalizeEmailAddress(selectedConversation?.contact?.email || '')}`;
+    void inboxApi.loadMessages(selectedConversationId, externalConversationKey)
       .then((result) => {
         if (!active || !Array.isArray(result?.messages)) return;
         setMessages((previous) => {
@@ -872,7 +934,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const externalConversationKey = activeChannel === 'whatsapp'
       ? `whatsapp:${accountId}:${normalizeWhatsAppPhone(activeConversation?.contact.whatsappJid || activeConversation?.contact.phone || '')}`
       : activeChannel === 'email' && activeConversation?.sourceEmailId
-        ? `email:${accountId}:${normalizeEmailAddress(activeConversation.contact.email || '')}:${activeConversation.sourceEmailId}`
+        ? `email:${accountId}:${normalizeEmailAddress(activeConversation.contact.email || '')}`
         : undefined;
     const persistMessage = (externalMessageId?: string) => inboxApi.sendMessage(
       selectedConversationId,
@@ -1518,7 +1580,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addAuditLog(
           'RELATIONAL_PERSISTENCE_DRIFT',
           'Conversation',
-          email.conversationId || stableEmailConversationId(email.fromEmail, email.id),
+          email.conversationId || stableEmailConversationId(email.fromEmail),
           `Email ${email.id} is currently available only in workspace state.`,
         );
       });
@@ -1532,15 +1594,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return [...uniqueNew, ...prev];
     });
     if (uniqueNewEmails.length && emailSettings.enabled) {
-      const known = new Set([
-        ...waitingQueueRef.current.map((item) => item.sourceEmailId),
-        ...conversationsRef.current.map((conversation) => conversation.sourceEmailId),
-      ].filter(Boolean));
-      const seenIncoming = new Set<string>();
+      const seenIncomingSenders = new Set<string>();
       const incoming = uniqueNewEmails
         .filter((email) => {
-          if (known.has(email.id) || seenIncoming.has(email.id)) return false;
-          seenIncoming.add(email.id);
+          const senderKey = normalizeEmailAddress(email.fromEmail);
+          if (seenIncomingSenders.has(senderKey)) return false;
+          seenIncomingSenders.add(senderKey);
           return true;
         })
         .map((email): WaitingQuery => ({
@@ -1569,7 +1628,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const queuedEmails: WaitingQuery[] = [];
 
       incoming.forEach((query) => {
-        if (emailSettings.autoLand && !isAgentPaused && activeOpenCount < landingLimit) {
+        const existingConversation = conversationsRef.current.find((conversation) =>
+          conversation.channelType === 'email'
+          && normalizeEmailAddress(conversation.contact?.email || '') === normalizeEmailAddress(query.email)
+        );
+        if (existingConversation) {
+          landQueryItem(query);
+        } else if (emailSettings.autoLand && !isAgentPaused && activeOpenCount < landingLimit) {
           landQueryItem(query);
           activeOpenCount += 1;
         } else {
@@ -1580,8 +1645,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (queuedEmails.length) {
         setWaitingQueue((prev) => {
           const existingIds = new Set(prev.map((item) => item.id));
-          const existingEmailIds = new Set(prev.map((item) => item.sourceEmailId).filter(Boolean));
-          const uniqueQueued = queuedEmails.filter((item) => !existingIds.has(item.id) && !existingEmailIds.has(item.sourceEmailId));
+          const existingEmailSenders = new Set(prev.filter((item) => item.channelType === 'email').map((item) => normalizeEmailAddress(item.email)));
+          const uniqueQueued = queuedEmails.filter((item) => {
+            const senderKey = normalizeEmailAddress(item.email);
+            if (existingIds.has(item.id) || existingEmailSenders.has(senderKey)) return false;
+            existingEmailSenders.add(senderKey);
+            return true;
+          });
           return uniqueQueued.length ? [...prev, ...uniqueQueued] : prev;
         });
       }
@@ -1681,7 +1751,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const existingConversation = conversationsRef.current.find((conversation) => conversation.channelType === 'whatsapp' && conversation.id === stableConversationId);
       const existingContactConversation = conversationsRef.current.find((conversation) => conversation.channelType === 'whatsapp' && normalizeWhatsAppPhone(conversation.contact.whatsappJid || conversation.contact.phone || '') === normalizedPhone);
       const activeOpenCount = conversationsRef.current.filter((conversation) => (conversation.status === 'open' || conversation.status === 'pending') && conversation.assignedAgentId === currentUser.id).length;
-      if (!existingConversation && activeOpenCount >= landingLimit) {
+      if (!existingConversation && !existingContactConversation && activeOpenCount >= landingLimit) {
         queueIncomingQuery({
           id: `wa_queue_${inboundId}`,
           name: incoming.senderName || 'WhatsApp Customer',
@@ -1703,7 +1773,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let nextMessage: Message | null = null;
 
       setConversations((previous) => {
-        const existing = previous.find((conversation) => conversation.channelType === 'whatsapp' && conversation.id === stableConversationId);
+        const existing = previous.find((conversation) => conversation.channelType === 'whatsapp' && conversation.id === stableConversationId)
+          || existingContactConversation;
         if (existing) {
           conversationId = existing.id;
           nextMessage = {

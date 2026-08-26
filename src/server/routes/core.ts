@@ -498,6 +498,17 @@ coreRouter.post('/conversations/:id/read', requireAuth, async (req, res) => {
 coreRouter.get('/conversations/:id/messages', requireAuth, async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
   try {
+    const conversationIds = [req.params.id];
+    const externalConversationKey = typeof req.query.externalConversationKey === 'string'
+      ? req.query.externalConversationKey.trim()
+      : '';
+    if (externalConversationKey) {
+      const related = await dbPool.query(
+        `SELECT id FROM conversations WHERE external_conversation_key = $1`,
+        [externalConversationKey],
+      );
+      for (const row of related.rows) if (!conversationIds.includes(row.id)) conversationIds.push(row.id);
+    }
     const result = await dbPool.query(
       `SELECT
          id,
@@ -510,10 +521,10 @@ coreRouter.get('/conversations/:id/messages', requireAuth, async (req, res) => {
          external_message_id AS "externalMessageId",
          created_at AS "createdAt"
        FROM messages
-       WHERE conversation_id = $1
+       WHERE conversation_id = ANY($1::text[])
        ORDER BY created_at ASC
        LIMIT 500`,
-      [req.params.id],
+      [conversationIds],
     );
     res.json({ messages: result.rows });
   } catch (error) {

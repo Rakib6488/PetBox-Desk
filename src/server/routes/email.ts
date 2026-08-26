@@ -16,8 +16,8 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function stableEmailConversationId(email: string, sourceEmailId: string): string {
-  return `conv_email_${encodeURIComponent(normalizeEmail(email))}_${encodeURIComponent(sourceEmailId)}`;
+function stableEmailConversationId(email: string): string {
+  return `conv_email_${encodeURIComponent(normalizeEmail(email))}`;
 }
 
 const EMAIL_EXTERNAL_ACCOUNT_ID = 'default-mailbox';
@@ -306,15 +306,35 @@ emailRouter.get('/fetch', async (req, res) => {
           }));
           const emailRecord = { id: stableSourceEmailId, fromName: from?.name || 'Unknown Customer', fromEmail: from?.address || '', subject: parsed.subject || '(No Subject)', body, preview: body.slice(0, 180), receivedAt, isRead: message.flags?.has('\\Seen') ?? true, isStarred: message.flags?.has('\\Flagged') ?? false, messageId: parsed.messageId || '', references: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || '', attachments: parsedAttachments, hasAttachment: parsedAttachments.length > 0 };
           let relationalPersistenceStatus: 'persisted' | 'workspace_only' = 'workspace_only';
-          const conversationId = emailRecord.fromEmail
-            ? stableEmailConversationId(emailRecord.fromEmail, emailRecord.id)
+          let conversationId = emailRecord.fromEmail
+            ? stableEmailConversationId(emailRecord.fromEmail)
             : undefined;
+
+          // Reuse a legacy per-message email conversation when the stable
+          // sender-based conversation has not been created yet. This prevents
+          // the first post-change email from creating a second visible thread.
+          if (dbPool && conversationId && emailRecord.fromEmail) {
+            const legacyPrefix = `conv_email_${encodeURIComponent(normalizeEmail(emailRecord.fromEmail))}_%`;
+            try {
+              const existingConversation = await dbPool.query(
+                `SELECT id
+                 FROM conversations
+                 WHERE channel = 'email' AND (id = $1 OR id LIKE $2)
+                 ORDER BY (id = $1) DESC, updated_at DESC
+                 LIMIT 1`,
+                [conversationId, legacyPrefix],
+              );
+              conversationId = existingConversation.rows[0]?.id || conversationId;
+            } catch (error) {
+              console.warn('Unable to locate a legacy email conversation; using the stable sender key.', error);
+            }
+          }
 
           if (dbPool && conversationId) {
             try {
               const externalMessageId = emailRecord.messageId || emailRecord.id;
               const externalConversationKey =
-                `email:${EMAIL_EXTERNAL_ACCOUNT_ID}:${normalizeEmail(emailRecord.fromEmail)}:${emailRecord.id}`;
+                `email:${EMAIL_EXTERNAL_ACCOUNT_ID}:${normalizeEmail(emailRecord.fromEmail)}`;
 
               const persisted = await persistEmailInboundMessage(dbPool, {
                 conversationId,
