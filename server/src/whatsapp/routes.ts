@@ -52,8 +52,8 @@ export function createWhatsAppRouter(io: SocketIOServer) {
     }
 
     try {
-      await sendWhatsAppMessage(jid, text);
-      res.json({ ok: true });
+      const result = await sendWhatsAppMessage(jid, text);
+      res.json({ ok: true, messageId: result.messageId });
     } catch (error) {
       res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'Unable to send WhatsApp message.' });
     }
@@ -68,8 +68,8 @@ export function createWhatsAppRouter(io: SocketIOServer) {
       return;
     }
     try {
-      await sendWhatsAppVoice(jid, audio, mimetype);
-      res.json({ ok: true });
+      const result = await sendWhatsAppVoice(jid, audio, mimetype);
+      res.json({ ok: true, messageId: result.messageId });
     } catch (error) {
       res.status(502).json({ ok: false, error: error instanceof Error ? error.message : 'Unable to send WhatsApp voice message.' });
     }

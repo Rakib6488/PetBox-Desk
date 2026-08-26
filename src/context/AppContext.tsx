@@ -454,7 +454,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const toggleAgentPause = () => {
     const next = !isAgentPaused;
     setIsAgentPaused(next);
-    if (next) setSelectedConversationId(null);
 
     const nextStatus: AgentStatus = next ? 'offline' : 'online';
     if (currentUser.status !== nextStatus) {
@@ -847,7 +846,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setMessages((prev) => [...prev, newMessage]);
     const updateDeliveryStatus = (deliveryStatus: 'sent' | 'failed', deliveryError?: string) => setMessages((prev) => prev.map((message) => message.id === newMessage.id ? { ...message, metadata: { ...message.metadata, deliveryStatus, ...(deliveryError ? { deliveryError } : {}) } } : message));
-    const persistMessage = () => inboxApi.sendMessage(selectedConversationId, content, messageType, activeConversation?.channelType || 'email');
+    const activeChannel = activeConversation?.channelType || 'email';
+    const accountId = activeChannel === 'whatsapp'
+      ? 'whatsapp'
+      : activeConversation?.pageId?.trim()
+        && !(activeChannel === 'email' && activeConversation.pageId === 'page_petbox_fb')
+        ? activeConversation.pageId.trim()
+        : 'default-mailbox';
+    const externalConversationKey = activeChannel === 'whatsapp'
+      ? `whatsapp:${accountId}:${normalizeWhatsAppPhone(activeConversation?.contact.whatsappJid || activeConversation?.contact.phone || '')}`
+      : activeChannel === 'email' && activeConversation?.sourceEmailId
+        ? `email:${accountId}:${normalizeEmailAddress(activeConversation.contact.email || '')}:${activeConversation.sourceEmailId}`
+        : undefined;
+    const persistMessage = (externalMessageId?: string) => inboxApi.sendMessage(
+      selectedConversationId,
+      content,
+      messageType,
+      activeChannel,
+      attachments,
+      externalMessageId,
+      externalConversationKey,
+    );
     if (!isExternalChannel) void persistMessage()
       .then(() => { if (!isExternalChannel) updateDeliveryStatus('sent'); })
       .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('MESSAGE_PERSISTENCE_FAILED', 'Conversation', selectedConversationId, error?.message || 'Unable to save message.'); });
@@ -858,7 +877,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: content,
         inReplyTo: activeConversation.emailMessageId,
         references: [activeConversation.emailReferences, activeConversation.emailMessageId].filter(Boolean).join(' '),
-      }), 30000).then(() => persistMessage()).then(() => {
+      }), 30000).then((delivery) => persistMessage(delivery.messageId)).then(() => {
         updateDeliveryStatus('sent');
         if (activeConversation.sourceEmailId) {
           setCustomerEmails((prev) => prev.map((email) => email.id === activeConversation.sourceEmailId ? { ...email, status: 'in_progress', isRead: true, assignedAgentName: currentUser.name } : email));
@@ -884,7 +903,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         ? whatsappApi.sendVoice(activeConversation.contact.whatsappJid, voiceAttachment.url, voiceAttachment.type || 'audio/webm')
         : whatsappApi.send(activeConversation.contact.whatsappJid, content);
       void withDeliveryTimeout(delivery)
-        .then(() => persistMessage())
+        .then((deliveryResult) => persistMessage(deliveryResult.messageId))
         .then(() => { updateDeliveryStatus('sent'); addAuditLog('WHATSAPP_MESSAGE_SENT', 'Conversation', selectedConversationId, `WhatsApp message accepted for ${activeConversation.contact.name}`); })
         .catch((error) => { updateDeliveryStatus('failed'); addAuditLog('WHATSAPP_MESSAGE_FAILED', 'Conversation', selectedConversationId, `WhatsApp message failed: ${error?.message || 'WhatsApp delivery failed'}`); })
         .finally(finishDelivery);

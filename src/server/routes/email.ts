@@ -19,6 +19,132 @@ function stableEmailConversationId(email: string, sourceEmailId: string): string
   return `conv_email_${encodeURIComponent(normalizeEmail(email))}_${encodeURIComponent(sourceEmailId)}`;
 }
 
+const EMAIL_EXTERNAL_ACCOUNT_ID = 'default-mailbox';
+
+type PersistEmailInboundArgs = {
+  conversationId: string;
+  fromEmail: string;
+  content: string;
+  sourceEmailId: string;
+  externalMessageId: string;
+  externalConversationKey: string;
+  incrementUnread: boolean;
+};
+
+async function persistEmailInboundMessage(
+  pool: NonNullable<typeof dbPool>,
+  args: PersistEmailInboundArgs,
+): Promise<{ unreadCount: number; inserted: boolean }> {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query('SAVEPOINT conversation_key_upsert');
+
+    let conversationResult;
+
+    try {
+      conversationResult = await client.query(
+        `INSERT INTO conversations
+           (id, channel, status, unread_count, updated_at, external_conversation_key)
+         VALUES ($1, 'email', 'open', 0, NOW(), $2)
+         ON CONFLICT (id) DO UPDATE
+         SET status = CASE
+                       WHEN conversations.status = 'closed' THEN 'open'
+                       ELSE conversations.status
+                     END,
+             external_conversation_key = COALESCE(
+               conversations.external_conversation_key,
+               EXCLUDED.external_conversation_key
+             ),
+             updated_at = NOW()
+         RETURNING id, unread_count`,
+        [args.conversationId, args.externalConversationKey],
+      );
+
+      await client.query('RELEASE SAVEPOINT conversation_key_upsert');
+    } catch (error: any) {
+      const isExternalKeyCollision =
+        error?.code === '23505'
+        && String(error?.constraint || '').includes('idx_conversations_external_key');
+
+      if (!isExternalKeyCollision) throw error;
+
+      await client.query('ROLLBACK TO SAVEPOINT conversation_key_upsert');
+
+      console.warn('Email conversation external-key collision; continuing without claiming key.', {
+        conversationId: args.conversationId,
+        externalConversationKey: args.externalConversationKey,
+        constraint: error?.constraint,
+      });
+
+      conversationResult = await client.query(
+        `INSERT INTO conversations
+           (id, channel, status, unread_count, updated_at)
+         VALUES ($1, 'email', 'open', 0, NOW())
+         ON CONFLICT (id) DO UPDATE
+         SET status = CASE
+                       WHEN conversations.status = 'closed' THEN 'open'
+                       ELSE conversations.status
+                     END,
+             updated_at = NOW()
+         RETURNING id, unread_count`,
+        [args.conversationId],
+      );
+
+      await client.query('RELEASE SAVEPOINT conversation_key_upsert');
+    }
+
+    const messageResult = await client.query(
+      `INSERT INTO messages (
+         id,
+         conversation_id,
+         sender_type,
+         sender_id,
+         content,
+         message_type,
+         channel,
+         attachments,
+         external_message_id,
+         status
+       )
+       VALUES ($1, $2, 'contact', $3, $4, 'text', 'email', NULL, $5, 'delivered')
+       ON CONFLICT (channel, external_message_id) DO NOTHING
+       RETURNING id`,
+      [
+        `email_msg_${args.sourceEmailId}`,
+        args.conversationId,
+        args.fromEmail,
+        args.content,
+        args.externalMessageId,
+      ],
+    );
+
+    if (messageResult.rowCount && args.incrementUnread) {
+      conversationResult = await client.query(
+        `UPDATE conversations
+         SET unread_count = unread_count + 1,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, unread_count`,
+        [args.conversationId],
+      );
+    }
+
+    await client.query('COMMIT');
+
+    return {
+      unreadCount: Number(conversationResult.rows[0]?.unread_count || 0),
+      inserted: Boolean(messageResult.rowCount),
+    };
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch { /* transaction already closed */ }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 const SMTP_RETRY_DELAY_MS = 750;
 const SMTP_RETRYABLE_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ESOCKET', 'SMTP_ETIMEDOUT']);
 
@@ -167,23 +293,29 @@ emailRouter.get('/fetch', async (req, res) => {
 
           if (dbPool && conversationId) {
             try {
-              const persisted = await dbPool.query(
-                `INSERT INTO conversations
-                   (id, channel, status, unread_count, updated_at)
-                 VALUES ($1, 'email', 'open', $2, NOW())
-                 ON CONFLICT (id) DO NOTHING
-                 RETURNING id, unread_count`,
-                [conversationId, emailRecord.isRead ? 0 : 1],
-              );
-              if (persisted.rowCount && !emailRecord.isRead) {
+              const externalMessageId = emailRecord.messageId || emailRecord.id;
+              const externalConversationKey =
+                `email:${EMAIL_EXTERNAL_ACCOUNT_ID}:${normalizeEmail(emailRecord.fromEmail)}:${emailRecord.id}`;
+
+              const persisted = await persistEmailInboundMessage(dbPool, {
+                conversationId,
+                fromEmail: emailRecord.fromEmail,
+                content: emailRecord.body,
+                sourceEmailId: emailRecord.id,
+                externalMessageId,
+                externalConversationKey,
+                incrementUnread: !emailRecord.isRead,
+              });
+
+              if (persisted.inserted && !emailRecord.isRead) {
                 io.of('/inbox').emit('badge:update', {
                   channel: 'email',
                   conversationId,
-                  unreadCount: Number(persisted.rows[0].unread_count),
+                  unreadCount: persisted.unreadCount,
                 });
               }
             } catch (error) {
-              console.error('Failed to persist inbound email unread state:', {
+              console.error('Failed to persist inbound email relational message and unread state:', {
                 error: error instanceof Error ? error.message : error,
                 conversationId,
                 sourceEmailId: emailRecord.id,

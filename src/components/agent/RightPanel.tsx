@@ -124,7 +124,14 @@ export const RightPanel: React.FC = () => {
               String(contact?.name || 'C').charAt(0).toUpperCase()
             )}
           </div>
-          <h4 className="font-bold text-slate-900 text-xs truncate">{contact.name}</h4>
+          <div className="flex min-w-0 items-center gap-2">
+            <h4 className="truncate font-bold text-slate-900 text-xs">{contact.name}</h4>
+            {selectedConversation.status === 'closed' && (
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                Closed
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Channel identity */}

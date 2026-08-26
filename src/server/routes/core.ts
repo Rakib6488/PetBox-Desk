@@ -290,26 +290,107 @@ coreRouter.post('/conversations/:id/read', requireAuth, async (req, res) => {
 
 coreRouter.post('/conversations/:id/messages', requireAuth, requireRole('admin', 'supervisor', 'agent'), async (req, res) => {
   if (!dbPool) return res.status(503).json({ error: 'Database is not configured.' });
-  const { content, messageType = 'text', channel = 'live_chat' } = req.body || {};
+  const {
+    content,
+    messageType = 'text',
+    channel = 'live_chat',
+    attachments,
+    externalMessageId,
+    externalConversationKey,
+  } = req.body || {};
   if (typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Message content is required.' });
   if (content.length > 10000) return res.status(413).json({ error: 'Message content is too large.' });
   if (!['text', 'image', 'file', 'audio', 'product_card'].includes(messageType)) return res.status(400).json({ error: 'Unsupported message type.' });
   const safeChannel = ['facebook', 'live_chat', 'email', 'whatsapp'].includes(channel) ? channel : 'live_chat';
+  const relationalChannel = safeChannel === 'email' || safeChannel === 'whatsapp';
+  const safeAttachments = Array.isArray(attachments) ? attachments : null;
+  const safeExternalMessageId = typeof externalMessageId === 'string' && externalMessageId.trim()
+    ? externalMessageId.trim()
+    : null;
+  const safeExternalConversationKey = typeof externalConversationKey === 'string' && externalConversationKey.trim()
+    ? externalConversationKey.trim()
+    : null;
   try {
     // Workspace state can contain a conversation before the relational row
     // exists on a fresh Render database. Create the missing parent row first.
-    await dbPool.query(
-      `INSERT INTO conversations (id, channel, status, subject)
-       VALUES ($1, $2, 'open', '')
-       ON CONFLICT (id) DO NOTHING`,
-      [req.params.id, safeChannel]
-    );
-    const result = await dbPool.query(
-      `INSERT INTO messages (id, conversation_id, sender_type, sender_id, content, message_type)
-       VALUES ($1, $2, 'agent', $3, $4, $5)
-       RETURNING id, conversation_id AS "conversationId", sender_type AS "senderType", sender_id AS "senderId", content, message_type AS "messageType", created_at AS "createdAt"`,
-      [`msg_${crypto.randomUUID()}`, req.params.id, res.locals.user.id, content.trim(), messageType]
-    );
+    if (relationalChannel) {
+      try {
+        await dbPool.query(
+          `INSERT INTO conversations (id, channel, status, subject, external_conversation_key)
+           VALUES ($1, $2, 'open', '', $3)
+           ON CONFLICT (id) DO UPDATE
+           SET external_conversation_key = COALESCE(
+             conversations.external_conversation_key,
+             EXCLUDED.external_conversation_key
+           )`,
+          [req.params.id, safeChannel, safeExternalConversationKey],
+        );
+      } catch (error: any) {
+        const isExternalKeyCollision =
+          error?.code === '23505'
+          && String(error?.constraint || '').includes('idx_conversations_external_key');
+
+        if (!isExternalKeyCollision) throw error;
+
+        console.warn('Conversation external-key collision; continuing without claiming key.', {
+          conversationId: req.params.id,
+          channel: safeChannel,
+          externalConversationKey: safeExternalConversationKey,
+          constraint: error?.constraint,
+        });
+      }
+    } else {
+      await dbPool.query(
+        `INSERT INTO conversations (id, channel, status, subject)
+         VALUES ($1, $2, 'open', '')
+         ON CONFLICT (id) DO NOTHING`,
+        [req.params.id, safeChannel],
+      );
+    }
+    const result = relationalChannel
+      ? await dbPool.query(
+        `INSERT INTO messages (
+           id,
+           conversation_id,
+           sender_type,
+           sender_id,
+           content,
+           message_type,
+           channel,
+           attachments,
+           external_message_id,
+           status
+         )
+         VALUES ($1, $2, 'agent', $3, $4, $5, $6, $7::jsonb, $8, 'sent')
+         RETURNING
+           id,
+           conversation_id AS "conversationId",
+           sender_type AS "senderType",
+           sender_id AS "senderId",
+           content,
+           message_type AS "messageType",
+           channel,
+           attachments,
+           external_message_id AS "externalMessageId",
+           status,
+           created_at AS "createdAt"`,
+        [
+          `msg_${crypto.randomUUID()}`,
+          req.params.id,
+          res.locals.user.id,
+          content.trim(),
+          messageType,
+          safeChannel,
+          safeAttachments ? JSON.stringify(safeAttachments) : null,
+          safeExternalMessageId,
+        ],
+      )
+      : await dbPool.query(
+        `INSERT INTO messages (id, conversation_id, sender_type, sender_id, content, message_type)
+         VALUES ($1, $2, 'agent', $3, $4, $5)
+         RETURNING id, conversation_id AS "conversationId", sender_type AS "senderType", sender_id AS "senderId", content, message_type AS "messageType", created_at AS "createdAt"`,
+        [`msg_${crypto.randomUUID()}`, req.params.id, res.locals.user.id, content.trim(), messageType],
+      );
     const conversationUpdate = await dbPool.query(
       `UPDATE conversations
        SET unread_count = CASE WHEN $2 IN ('facebook', 'whatsapp', 'email') THEN 0 ELSE unread_count END,

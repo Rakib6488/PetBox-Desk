@@ -102,14 +102,21 @@ export const ChatWindow: React.FC = () => {
   };
 
   const handleEndTicket = () => {
+    if (selectedConversation.status === 'closed') return;
+
     if (activeTag) {
       const ended = endConversation(selectedConversation.id, activeTag, selectedSentiment);
-      if (ended) setDraftMessage('');
+      if (ended) {
+        setDraftMessage('');
+        setTagDropdownOpen(false);
+      }
       return;
     }
     setTagSelectionError('Select a category before ending the conversation.');
     setTagDropdownOpen(true);
   };
+
+  const isConversationClosed = selectedConversation.status === 'closed';
 
   const handleRealVoiceRecord = () => {
     if (voiceRecorderRef.current) {
@@ -291,6 +298,7 @@ export const ChatWindow: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}
+                disabled={isConversationClosed}
                 className="hover:text-slate-700 transition-colors"
                 title="Emoji"
               >
@@ -324,6 +332,7 @@ export const ChatWindow: React.FC = () => {
                   pauseConversation(selectedConversation.id, 'Paused from reply toolbar');
                 }
               }}
+              disabled={isConversationClosed}
               className="hover:text-slate-700 transition-colors"
               title={selectedConversation.status === 'paused' ? 'Resume conversation' : 'Pause conversation'}
             >
@@ -333,6 +342,7 @@ export const ChatWindow: React.FC = () => {
             {/* 3. Paperclip Attachment */}
             <button
               onClick={() => attachmentInputRef.current?.click()}
+              disabled={isConversationClosed}
               className="hover:text-slate-700 transition-colors"
               title="Attach File"
             >
@@ -365,6 +375,7 @@ export const ChatWindow: React.FC = () => {
                   'প্রিয় গ্রাহক, আপনার সমস্যার বিবরণটি আমাদের জানান যাতে আমরা যাচাই করে জানাতে পারি।'
                 );
               }}
+              disabled={isConversationClosed}
               className="hover:text-slate-700 transition-colors"
               onClickCapture={(event) => {
                 event.preventDefault();
@@ -402,6 +413,7 @@ export const ChatWindow: React.FC = () => {
             {/* 7. Info */}
             <button
               onClick={() => setDraftMessage((prev) => `${prev}${prev ? '\n\n' : ''}Customer details: ${selectedConversation.contact.email || 'No email on file'} | ${selectedConversation.contact.phone || 'No phone on file'}`)}
+              disabled={isConversationClosed}
               className="hover:text-slate-700 transition-colors"
               title="Info"
             >
@@ -411,6 +423,7 @@ export const ChatWindow: React.FC = () => {
             {/* 8. Voice Mic */}
             <button
               onClick={handleRealVoiceRecord}
+              disabled={isConversationClosed}
               className={`hover:text-slate-700 transition-colors ${
                 isRecordingVoice ? 'text-rose-600 animate-pulse' : ''
               }`}
@@ -432,13 +445,15 @@ export const ChatWindow: React.FC = () => {
             value={draftMessage}
             onChange={(e) => setDraftMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Write your reply here..."
+            disabled={isConversationClosed}
+            readOnly={isConversationClosed}
+            placeholder={isConversationClosed ? 'Conversation closed' : 'Write your reply here...'}
             className="min-h-[58px] w-full rounded-lg border border-slate-200 bg-white p-3 pr-10 text-xs text-slate-800 placeholder-slate-400 focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100 resize-none font-normal"
           />
 
           <button
             onClick={handleSend}
-            disabled={!draftMessage.trim()}
+            disabled={isConversationClosed || !draftMessage.trim()}
             className={`absolute right-2 bottom-2.5 p-1 rounded transition-all ${
               draftMessage.trim()
                 ? 'bg-teal-700 text-white hover:bg-teal-800'
@@ -455,11 +470,15 @@ export const ChatWindow: React.FC = () => {
           {/* Left: Tag selector box matching screenshot: SPAM_Q » Other » und... ✖ */}
           <div className="flex min-w-0 items-center gap-1 rounded-xl border border-slate-300 bg-white p-1 shadow-2xs transition-colors focus-within:border-teal-400 focus-within:ring-2 focus-within:ring-teal-100">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] font-medium text-slate-700">
-              <span className="min-w-0 truncate">
+              <span
+                className="min-w-0 truncate"
+                title={activeTag?.name || 'Select category'}
+              >
                 {activeTag?.name || 'Select category'}
               </span>
               {activeTag && <button
                 onClick={() => { setActiveTag(null); setTagSelectionError('Category is required before replying.'); }}
+                disabled={isConversationClosed}
                 className="text-slate-400 hover:text-slate-700"
               ><X className="w-3 h-3" /></button>}
             </div>
@@ -468,13 +487,14 @@ export const ChatWindow: React.FC = () => {
             <div className="relative shrink-0">
               <button
                 onClick={() => setTagDropdownOpen(!tagDropdownOpen)}
+                disabled={isConversationClosed}
                 className="rounded-lg border border-slate-300 p-1.5 text-slate-500 transition-colors hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
               >
                 <ChevronDown className="w-3 h-3" />
               </button>
 
-              {tagDropdownOpen && (
-                <div className="absolute bottom-9 left-0 z-50 w-60 max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-xl overscroll-contain">
+              {tagDropdownOpen && !isConversationClosed && (
+                <div className="absolute bottom-full left-0 z-[60] mb-2 w-60 max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-xl overscroll-contain">
                   {tags.map((t) => (
                     <button
                       key={t.id}
@@ -498,6 +518,7 @@ export const ChatWindow: React.FC = () => {
           <div className="flex min-w-0 flex-col">
             <select
               value={selectedSentiment}
+              disabled={isConversationClosed}
               onChange={(e) => {
                 const s = e.target.value as SentimentType;
                 setSelectedSentiment(s);
@@ -514,9 +535,10 @@ export const ChatWindow: React.FC = () => {
           {/* Right: Solid Red "End" button matching screenshot */}
           <button
             onClick={handleEndTicket}
-            className="h-9 w-full rounded-xl bg-[#E11D48] px-3 text-xs font-bold text-white shadow-2xs transition-all hover:bg-rose-700 hover:shadow-md cursor-pointer"
+            disabled={isConversationClosed}
+            className="h-9 w-full rounded-xl bg-[#E11D48] px-3 text-xs font-bold text-white shadow-2xs transition-all hover:bg-rose-700 hover:shadow-md cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
           >
-            End
+            {isConversationClosed ? 'Closed' : 'End'}
           </button>
         </div>
         {tagSelectionError && <p className="px-1 text-[10px] font-semibold text-rose-600">{tagSelectionError}</p>}
