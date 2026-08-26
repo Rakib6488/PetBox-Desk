@@ -1,27 +1,35 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart, Layers, FileText, Settings, Tag as TagIcon, Menu, MessageSquare } from 'lucide-react';
+import { Inbox, Send, Shield, CornerUpLeft, List, ChevronDown, Users, FileBarChart, Layers, FileText, Settings, Tag as TagIcon, Menu } from 'lucide-react';
 
 export const SidebarNav: React.FC = () => {
   const { currentRoute, navigateTo, currentUser } = useApp();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
 
   if (currentUser.role === 'bi') return null;
   const isAdmin = currentUser.role === 'admin';
+  const expanded = isAdmin || hovered || pinned;
 
   return (
-    <aside className={`${isAdmin ? 'w-52 items-stretch px-2' : 'w-10 items-center'} border-r border-slate-200 bg-white flex flex-col py-2.5 justify-between select-none shrink-0 z-10`}>
+    <aside onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} className={`${isAdmin ? 'w-52 items-stretch px-2' : expanded ? 'w-52 items-stretch px-2' : 'w-10 items-center'} border-r border-slate-200 bg-white flex flex-col py-2.5 justify-between select-none shrink-0 z-10 transition-[width] duration-200`}>
       {/* Top Camera / Snapshot icon matching screenshot */}
       <div className={`flex flex-col gap-2 ${isAdmin ? 'items-stretch' : 'items-center'}`}>
-        {!isAdmin && <div className="relative">
-          <button type="button" onClick={() => setMenuOpen((open) => !open)} className="w-7 h-7 rounded border border-slate-300 bg-slate-50 flex items-center justify-center text-slate-700 hover:bg-slate-100" title="Open navigation menu" aria-label="Open navigation menu" aria-expanded={menuOpen}>
-            <Menu className="w-4 h-4" />
+        {!isAdmin && <>
+          <button type="button" onClick={() => setPinned((value) => !value)} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-7 rounded border border-slate-300 bg-slate-50 flex items-center text-slate-700 hover:bg-slate-100`} title="Toggle navigation sidebar" aria-label="Toggle navigation sidebar" aria-expanded={expanded}>
+            <Menu className="w-4 h-4 shrink-0" />
+            {expanded && <span className="text-xs font-semibold">Menu</span>}
           </button>
-          {menuOpen && <div className="absolute left-8 top-0 z-50 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-            <button type="button" onClick={() => { navigateTo('/agent/inbox'); setMenuOpen(false); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold ${currentRoute === '/agent/inbox' ? 'bg-teal-50 text-teal-700' : 'text-slate-700 hover:bg-slate-50'}`}><MessageSquare className="h-4 w-4" /> Inbox</button>
-            <button type="button" onClick={() => { navigateTo('/agent/summary'); setMenuOpen(false); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold ${currentRoute === '/agent/summary' ? 'bg-teal-50 text-teal-700' : 'text-slate-700 hover:bg-slate-50'}`}><List className="h-4 w-4" /> Summary</button>
-          </div>}
-        </div>}
+          <button type="button" onClick={() => navigateTo('/agent/inbox')} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded flex items-center ${currentRoute === '/agent/inbox' ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`} title="Inbox" aria-label="Inbox">
+            <Inbox className="w-4 h-4 shrink-0" />{expanded && <span className="text-xs font-semibold">Inbox</span>}
+          </button>
+          <button type="button" onClick={() => navigateTo('/agent/assigned')} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded flex items-center ${currentRoute === '/agent/assigned' ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`} title="Assigned" aria-label="Assigned">
+            <CornerUpLeft className="w-4 h-4 shrink-0" />{expanded && <span className="text-xs font-semibold">Assigned</span>}
+          </button>
+          <button type="button" onClick={() => navigateTo('/agent/summary')} className={`${expanded ? 'w-full justify-start gap-3 px-3' : 'w-7 justify-center'} h-8 rounded flex items-center ${currentRoute === '/agent/summary' ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`} title="Summary" aria-label="Summary">
+            <List className="w-4 h-4 shrink-0" />{expanded && <span className="text-xs font-semibold">Summary</span>}
+          </button>
+        </>}
         {false && !isAdmin && <button
           type="button"
           onClick={() => navigateTo('/agent/assigned')}

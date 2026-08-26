@@ -123,7 +123,7 @@ export const ConversationList: React.FC = () => {
 
       {/* Conversations List */}
       <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-        {isAgentPaused && filteredConversations.length > 0 && (
+        {false && isAgentPaused && filteredConversations.length > 0 && (
           <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
             Paused — you won’t receive new conversations.
           </div>

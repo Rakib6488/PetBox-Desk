@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { AgentStatus } from '../../types';
 import {
-  Menu,
   MessageSquare,
   Mail,
   ChevronDown,
@@ -12,7 +11,6 @@ import {
   ArrowDownToLine,
   Settings,
   BarChart3,
-  FileBarChart,
   MessageCircle,
   Facebook,
 } from 'lucide-react';
@@ -33,7 +31,6 @@ export const Header: React.FC = () => {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [waitingQueueOpen, setWaitingQueueOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const statusLabel = (status: AgentStatus) => status === 'away' ? 'Meeting' : status;
   const realMessageCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => {
@@ -79,24 +76,6 @@ export const Header: React.FC = () => {
       )}
       {/* Left side matching screenshot: Hamburger Menu [☰] + [💬 16] + [💬 0] + [✉ 4k+] */}
       <div className={`flex items-center gap-2 sm:gap-3 ${currentUser.role === 'admin' ? 'hidden' : ''}`}>
-        {/* Hamburger Menu icon */}
-        <div className="relative">
-          <button
-            onClick={() => setMenuOpen((open) => !open)}
-            className="w-7 h-7 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded transition-colors"
-            title="Menu"
-            aria-label="Menu"
-          >
-            <Menu className="w-5 h-5 stroke-[2.2]" />
-          </button>
-          {menuOpen && (
-            <div className="absolute left-0 top-8 z-50 w-44 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
-              <button type="button" onClick={() => { navigateTo('/agent/inbox'); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><MessageSquare className="h-3.5 w-3.5 text-teal-600" /> Inbox</button>
-              <button type="button" onClick={() => { navigateTo('/agent/summary'); setMenuOpen(false); }} className={`flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs font-semibold hover:bg-teal-50 ${currentRoute === '/agent/summary' ? 'bg-teal-50 text-teal-700' : 'text-slate-700'}`}><FileBarChart className="h-3.5 w-3.5 text-teal-600" /> Summary</button>
-            </div>
-          )}
-        </div>
-
         {/* 3 Status pill badges strictly matching the screenshot */}
         <div className="flex items-center gap-2 relative">
           {/* Pill 1: [💬 16] in green border & green icon (Customer Waiting Queue) */}
