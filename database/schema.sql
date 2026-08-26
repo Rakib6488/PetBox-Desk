@@ -135,10 +135,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_external_key
   ON conversations(external_conversation_key)
   WHERE external_conversation_key IS NOT NULL;
 
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_messages_channel_external_id
+-- The startup schema runner executes this file as one idempotent batch. Do not
+-- use CONCURRENTLY here because PostgreSQL rejects it inside that batch's
+-- transaction context; startup must be able to verify the schema reliably.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_channel_external_id
   ON messages(channel, external_message_id);
 
-DROP INDEX CONCURRENTLY IF EXISTS idx_messages_external_id;
+DROP INDEX IF EXISTS idx_messages_external_id;
 
 CREATE TABLE IF NOT EXISTS facebook_inbox_events (
   id TEXT PRIMARY KEY,
