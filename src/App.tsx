@@ -32,14 +32,10 @@ const MainLayout: React.FC = () => {
       {isLoginRoute ? (
         <LoginView />
       ) : (
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Top Operational App Header */}
-          <Header />
-
-          {/* Core Shell Body */}
-          <div className="flex-1 flex min-w-0 overflow-hidden">
-            {/* Left Vertical Icon Bar */}
-            <SidebarNav />
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+          <SidebarNav />
+          <div className="flex-1 flex min-w-0 flex-col overflow-hidden">
+            <Header />
 
             {/* Dynamic Center/Right Area based on Route Hierarchy */}
             {(currentRoute === '/agent/summary' || currentRoute === '/admin/summary/all' || currentRoute === '/admin/summary/agents') ? (
