@@ -31,12 +31,16 @@ CREATE TABLE IF NOT EXISTS conversations (
   status TEXT NOT NULL DEFAULT 'open',
   subject TEXT,
   unread_count INTEGER NOT NULL DEFAULT 0,
+  external_conversation_key TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE conversations
   ADD COLUMN IF NOT EXISTS unread_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS external_conversation_key TEXT;
 
 DO $$
 BEGIN
@@ -61,8 +65,47 @@ CREATE TABLE IF NOT EXISTS messages (
   sender_id TEXT,
   content TEXT NOT NULL,
   message_type TEXT NOT NULL DEFAULT 'text',
+  channel TEXT,
+  attachments JSONB,
+  external_message_id TEXT,
+  status TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE messages
+  ADD COLUMN IF NOT EXISTS channel TEXT;
+
+ALTER TABLE messages
+  ADD COLUMN IF NOT EXISTS attachments JSONB;
+
+ALTER TABLE messages
+  ADD COLUMN IF NOT EXISTS external_message_id TEXT;
+
+ALTER TABLE messages
+  ADD COLUMN IF NOT EXISTS status TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'messages_channel_scope_check'
+  ) THEN
+    ALTER TABLE messages
+      ADD CONSTRAINT messages_channel_scope_check
+      CHECK (channel IS NULL OR channel IN ('email', 'whatsapp'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'messages_status_check'
+  ) THEN
+    ALTER TABLE messages
+      ADD CONSTRAINT messages_status_check
+      CHECK (status IS NULL OR status IN ('sent', 'delivered', 'read', 'failed'));
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS customer_emails (
   id TEXT PRIMARY KEY,
@@ -87,6 +130,15 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_customer_emails_status ON customer_emails(status, received_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_external_key
+  ON conversations(external_conversation_key)
+  WHERE external_conversation_key IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id
+  ON messages(channel, external_message_id)
+  WHERE channel IS NOT NULL
+    AND external_message_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS facebook_inbox_events (
   id TEXT PRIMARY KEY,
