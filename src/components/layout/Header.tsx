@@ -12,7 +12,6 @@ import {
   Settings,
   BarChart3,
   MessageCircle,
-  Facebook,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -39,7 +38,7 @@ export const Header: React.FC = () => {
     conversation.assignedAgentId === currentUser.id
     && (conversation.status === 'open' || conversation.status === 'pending')
   ).length;
-  const realMessageCount = (channel: 'facebook' | 'email' | 'live_chat' | 'whatsapp') => {
+  const realMessageCount = (channel: 'email' | 'whatsapp') => {
     // Channel badges represent only queries waiting to be landed. Once a
     // query is landed, it must not keep inflating the top-level badge.
     const queuedKeys = new Set<string>();
@@ -54,7 +53,7 @@ export const Header: React.FC = () => {
     return queued.length;
   };
 
-  const openChannel = (channel: 'facebook' | 'email' | 'whatsapp') => {
+  const openChannel = (channel: 'email' | 'whatsapp') => {
     navigateTo('/agent/inbox');
     setChannelFilter(channel);
   };
@@ -87,12 +86,12 @@ export const Header: React.FC = () => {
           {/* Pill 1: [💬 16] in green border & green icon (Customer Waiting Queue) */}
           <button
             onClick={() => setWaitingQueueOpen(!waitingQueueOpen)}
-            className="hidden"
-            title={`Unread Live Chat messages (${realMessageCount('live_chat')})`}
-            aria-label={`Unread Live Chat messages: ${realMessageCount('live_chat')}`}
+            className="flex items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+            title={`Customer waiting queue (${waitingQueue.length})`}
+            aria-label={`Customer waiting queue: ${waitingQueue.length}`}
           >
             <MessageSquare className="w-3.5 h-3.5 text-emerald-600 fill-emerald-100" />
-            <span className="text-xs font-bold text-emerald-800">{realMessageCount('live_chat')}</span>
+            <span className="text-xs font-bold text-emerald-800">{waitingQueue.length}</span>
           </button>
 
           {/* Customer Waiting Queue Popover / Dropdown */}
@@ -176,16 +175,6 @@ export const Header: React.FC = () => {
           )}
 
           {/* Pill 2: [💬 0] in light border */}
-          <button
-            className="hidden"
-            onClick={() => openChannel('facebook')}
-            title={`Unread Facebook messages (${realMessageCount('facebook')})`}
-            aria-label={`Unread Facebook messages: ${realMessageCount('facebook')}`}
-          >
-            <Facebook className="w-3.5 h-3.5 text-[#1877F2]" />
-            <span className="text-xs font-semibold text-slate-700">{realMessageCount('facebook')}</span>
-          </button>
-
           {/* Pill 3: customer support email mailbox */}
           <button
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer relative"
