@@ -11,6 +11,44 @@ import { TeamAgentsView } from './components/agent/TeamAgentsView';
 import { BIPortal } from './components/bi/BIPortal';
 import { AgentSummaryView } from './components/agent/AgentSummaryView';
 
+type ErrorBoundaryState = { hasError: boolean };
+type ErrorBoundaryProps = { children?: React.ReactNode };
+
+class FrontendErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  private readonly children: React.ReactNode;
+  state: ErrorBoundaryState = { hasError: false };
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.children = props.children;
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-center">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg">
+            <h1 className="text-lg font-bold text-slate-900">Something went wrong</h1>
+            <p className="mt-2 text-sm text-slate-500">The workspace could not render this view. Refresh and try again.</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+            >
+              Refresh workspace
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.children;
+  }
+}
+
 const MainLayout: React.FC = () => {
   const { currentRoute, isLoggedIn, currentUser, navigateTo, workspaceNotice } = useApp();
 
@@ -48,7 +86,7 @@ const MainLayout: React.FC = () => {
               <AdminPortal />
             ) : (
               /* Agent Panel: 3-column Layout matching reference screenshot (/agent/inbox, /agent/assigned, /agent/bookmarked) */
-              <main className="flex-1 flex min-w-0 overflow-hidden">
+              <main className="flex min-h-0 flex-1 min-w-0 overflow-hidden">
                 <ConversationList />
                 <ChatWindow />
                 <RightPanel />
@@ -64,7 +102,9 @@ const MainLayout: React.FC = () => {
 export default function App() {
   return (
     <AppProvider>
-      <MainLayout />
+      <FrontendErrorBoundary>
+        <MainLayout />
+      </FrontendErrorBoundary>
     </AppProvider>
   );
 }
