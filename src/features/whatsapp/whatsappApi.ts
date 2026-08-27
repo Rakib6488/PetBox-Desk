@@ -1,6 +1,9 @@
 import { io, type Socket } from 'socket.io-client';
 
-const backendUrl = import.meta.env.VITE_WHATSAPP_BACKEND_URL || window.location.origin;
+// The browser always talks to the integrated, session-authenticated server.
+// The standalone WhatsApp service is for trusted server-to-server callers and
+// must not receive its API key through a VITE client bundle.
+const backendUrl = window.location.origin;
 
 export type WhatsAppStatus = { connected: boolean; phoneNumber?: string };
 export type WhatsAppIncomingMessage = {

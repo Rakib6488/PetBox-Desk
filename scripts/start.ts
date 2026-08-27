@@ -1,9 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { dbPool } from '../src/server/db';
 
 dotenv.config();
+
+// Set the runtime mode before dynamically importing auth/config modules so
+// production never initializes with the development session-secret fallback.
+process.env.NODE_ENV = 'production';
+
+const { dbPool } = await import('../src/server/db');
 
 if (!dbPool) {
   throw new Error('DATABASE_URL is required.');
@@ -17,5 +22,4 @@ await dbPool.query(schema);
 console.log('PostgreSQL schema checked.');
 await import('./bootstrap-users.ts');
 
-process.env.NODE_ENV = 'production';
 await import('../server.ts');

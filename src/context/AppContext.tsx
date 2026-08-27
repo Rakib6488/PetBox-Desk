@@ -1455,58 +1455,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const createLiveChatVisitorConversation = (visitorName: string, initialMsg: string, email?: string): string => {
     addAuditLog('UNSUPPORTED_CHANNEL_IGNORED', 'Conversation', 'live_chat', 'Live Chat is disabled; only Email and WhatsApp are supported.');
     return '';
-    const visitorId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random()}`;
-    const contactId = `contact_visitor_${visitorId}`;
-    const convId = `conv_livechat_${visitorId}`;
-    const convUid = visitorId.replaceAll('-', '').slice(0, 16);
-
-    const newContact: Contact = {
-      id: contactId,
-      name: visitorName || 'Live Chat Visitor',
-      email: email || `visitor_${visitorId.slice(0, 8)}@customer.com`,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-      createdAt: new Date().toISOString(),
-      customerTier: 'New',
-    };
-
-    const newConv: Conversation = {
-      id: convId,
-      convUid,
-      pageId: 'page_web_livechat',
-      pageName: 'Petbox Live Chat',
-      channelType: 'live_chat',
-      contactId: newContact.id,
-      contact: newContact,
-      assignedAgentId: currentUser.id,
-      assignedAgent: currentUser,
-      status: 'open',
-      sentiment: 'neutral',
-      tags: [tags[1] || tags[0]],
-      lastMessageAt: new Date().toISOString(),
-      lastMessageText: initialMsg,
-      unreadCount: 1,
-      createdAt: new Date().toISOString(),
-      priority: 'medium',
-    };
-
-    const firstMsg: Message = {
-      id: `msg_init_${visitorId}`,
-      conversationId: convId,
-      senderType: 'contact',
-      senderId: newContact.id,
-      senderName: newContact.name,
-      content: initialMsg,
-      messageType: 'text',
-      createdAt: new Date().toISOString(),
-      isRead: false,
-    };
-
-    newConv.summary = createConversationSummary(newConv, [firstMsg]);
-
-    setConversations((prev) => [newConv, ...prev]);
-    setMessages((prev) => [...prev, firstMsg]);
-    playSoundChime();
-    return convId;
   };
 
   // Customer Email Ticket Operations
@@ -1560,8 +1508,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const email = customerEmails.find((e) => e.id === emailId);
     if (!email) return '';
 
-    const contactId = `contact_eml_${Date.now()}`;
-    const convId = `conv_eml_${Date.now()}`;
+    // Reuse the already landed thread when the mailbox sync has created one.
+    // Otherwise converting the same email repeatedly created duplicate tickets.
+    const existingConversation = conversations.find((conversation) =>
+      conversation.channelType === 'email'
+      && (conversation.sourceEmailId === email.id
+        || normalizeEmailAddress(conversation.contact?.email || '') === normalizeEmailAddress(email.fromEmail)),
+    );
+    if (existingConversation) {
+      setSelectedConversationId(existingConversation.id);
+      markEmailRead(emailId);
+      return existingConversation.id;
+    }
+
+    const conversionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random()}`;
+    const contactId = `contact_eml_${conversionId}`;
+    const convId = `conv_eml_${conversionId}`;
     const convUid = Math.random().toString(16).substring(2, 10) + Math.random().toString(16).substring(2, 10);
 
     const newContact: Contact = {
@@ -1583,6 +1545,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       channelType: 'email',
       contactId: newContact.id,
       contact: newContact,
+      sourceEmailId: email.id,
       assignedAgentId: currentUser.id,
       assignedAgent: currentUser,
       emailMessageId: email.messageId,
@@ -1656,8 +1619,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const uniqueNew = uniqueNewEmails.filter(
         (e) => !existingIds.has(e.id) && !existingSubjects.has(`${e.fromEmail}_${e.subject}_${e.receivedAt}`)
       );
-      if (uniqueNew.length === 0) return prev;
-      return [...uniqueNew, ...prev];
+      const incomingById = new Map(realEmails.map((email) => [email.id, email]));
+      const updatedExisting = prev.map((email) => {
+        const incomingEmail = incomingById.get(email.id);
+        return incomingEmail ? { ...email, isRead: incomingEmail.isRead, isStarred: incomingEmail.isStarred } : email;
+      });
+      return uniqueNew.length ? [...uniqueNew, ...updatedExisting] : updatedExisting;
     });
     if (uniqueNewEmails.length && emailSettings.enabled) {
       const seenIncomingSenders = new Set<string>();

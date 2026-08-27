@@ -86,7 +86,10 @@ app.use(requireSameOrigin);
 
 app.get('/api/health', async (_req, res) => {
   const database = await checkDatabaseConnection();
-  res.json({ status: 'ok', database: database.connected ? 'connected' : 'not_configured' });
+  res.status(database.connected ? 200 : 503).json({
+    status: database.connected ? 'ok' : 'error',
+    database: database.connected ? 'connected' : database.configured ? 'unavailable' : 'not_configured',
+  });
 });
 
 app.use('/api', createCoreRouter(io));

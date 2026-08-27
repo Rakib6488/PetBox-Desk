@@ -9,7 +9,7 @@ export const inboxApi = {
     conversationId: string,
     content: string,
     messageType = 'text',
-    channel = 'live_chat',
+    channel: 'email' | 'whatsapp' = 'email',
     attachments?: unknown[],
     externalMessageId?: string,
     externalConversationKey?: string,
